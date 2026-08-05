@@ -1,0 +1,86 @@
+{
+  "confirmed": [
+    {
+      "id": "appt-1",
+      "start_date": "2026-08-20T09:00:00.000+02:00",
+      "end_date": "2026-08-20T09:15:00.000+02:00",
+      "insurance_sector": "gesetzlich",
+      "confirmed": true,
+      "canceled": false,
+      "past": false,
+      "warn_late_modification": null,
+      "profile": {
+        "name_with_title": "Dr. Anna Müller",
+        "subtitle": "Allgemeinmedizin",
+        "speciality": {"name": "Hausärztliche Versorgung", "slug": "hausarztlich-tatige-internist-in"},
+        "link": "/medecin/dr-anna-mueller"
+      },
+      "practice": {"name": "Praxis Kantstraße", "address": "Kantstr. 12", "zipcode": "10625", "city": "Berlin"},
+      "visit_motive": {"name": "Akutsprechstunde", "telehealth": false},
+      "patient": {"first_name": "Erika", "last_name": "Mustermann"}
+    }
+  ],
+  "pending": [
+    {
+      "id": "appt-2",
+      "start_date": "2026-08-22T11:00:00.000+02:00",
+      "end_date": "2026-08-22T11:30:00.000+02:00",
+      "insurance_sector": "privat",
+      "confirmed": false,
+      "awaiting_confirmation_by_practitioner": true,
+      "canceled": false,
+      "past": false,
+      "warn_late_modification": null,
+      "profile": {
+        "name_with_title": "Dr. Schmidt",
+        "subtitle": null,
+        "speciality": "Zahnmedizin",
+        "link": "/zahnarzt/dr-schmidt"
+      },
+      "practice": {"name": "Zahnarztpraxis", "address": null, "zipcode": null, "city": "Berlin"},
+      "visit_motive": {"name": "Erstuntersuchung", "telehealth": false},
+      "patient": {"first_name": "Erika", "last_name": "Mustermann"}
+    }
+  ],
+  "done": [
+    {
+      "id": "appt-3",
+      "start_date": "2026-07-01T09:00:00.000+02:00",
+      "end_date": "2026-07-01T09:15:00.000+02:00",
+      "insurance_sector": "gesetzlich",
+      "confirmed": true,
+      "canceled": false,
+      "past": true,
+      "warn_late_modification": null,
+      "profile": {
+        "name_with_title": "Dr. Anna Müller",
+        "subtitle": "Allgemeinmedizin",
+        "speciality": {"name": "Hausärztliche Versorgung", "slug": "hausarztlich-tatige-internist-in"},
+        "link": "/medecin/dr-anna-mueller"
+      },
+      "practice": {"name": "Praxis Kantstraße", "address": "Kantstr. 12", "zipcode": "10625", "city": "Berlin"},
+      "visit_motive": {"name": "Vorsorge", "telehealth": false},
+      "patient": {"first_name": "Erika", "last_name": "Mustermann"}
+    },
+    {
+      "id": "appt-4",
+      "start_date": "2026-06-15T14:00:00.000+02:00",
+      "end_date": "2026-06-15T14:15:00.000+02:00",
+      "insurance_sector": "gesetzlich",
+      "confirmed": false,
+      "canceled": true,
+      "past": true,
+      "warn_late_modification": "2026-06-14T20:00:00.000+02:00",
+      "profile": {
+        "name_with_title": "Dr. Lerer",
+        "subtitle": "Orthopädie",
+        "speciality": "Orthopädie",
+        "link": "/orthopade/dr-lerer"
+      },
+      "practice": {"name": "Orthopädie West", "address": "Sampleweg", "zipcode": "13599", "city": "Berlin"},
+      "visit_motive": {"name": "Kontrolle", "telehealth": false},
+      "patient": {"first_name": "Max", "last_name": "Mustermann"}
+    }
+  ],
+  "has_next_page": true
+}

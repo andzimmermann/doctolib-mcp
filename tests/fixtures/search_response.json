@@ -1,0 +1,53 @@
+{
+  "total": 3,
+  "page": 0,
+  "healthcareProviders": [
+    {
+      "firstName": "Anna",
+      "name": "Müller",
+      "link": "/medecin/dr-anna-mueller?ref=search&city=berlin",
+      "speciality": {"name": "Hausärztliche Versorgung", "slug": "hausarztlich-tatige-internist-in"},
+      "subtitle": "Allgemeinmedizin",
+      "languages": ["de", "en"],
+      "location": {"city": "Berlin", "address": "Kantstr. 12", "zipcode": "10625"},
+      "references": {"practiceId": 901},
+      "matchedVisitMotive": {
+        "visitMotiveId": 55012,
+        "name": "Akutsprechstunde",
+        "agendaIds": [201],
+        "allowNewPatients": true
+      },
+      "onlineBooking": {"telehealth": false, "agendaIds": [101, 102]},
+      "services": ["onlineBooking", "teleconsultation"]
+    },
+    {
+      "name": "Schmidt",
+      "link": "/zahnarzt/dr-schmidt/",
+      "subtitle": "Zahnmedizin",
+      "languages": ["de"],
+      "location": {"city": "Berlin", "address": "Schönhauser Allee 40", "zipcode": "10435"},
+      "references": {"practiceId": 808},
+      "matchedVisitMotive": {
+        "visitMotiveId": 66001,
+        "name": "Erstuntersuchung",
+        "agendaIds": [301],
+        "allowNewPatients": false
+      },
+      "onlineBooking": {"telehealth": false},
+      "services": ["onlineBooking"]
+    },
+    {
+      "firstName": "Leerlauf",
+      "name": "Praxis",
+      "subtitle": "Radiologie",
+      "languages": ["de", "fr"],
+      "location": {"city": "Potsdam", "address": null, "zipcode": "14467"},
+      "references": {},
+      "matchedVisitMotive": {
+        "visitMotiveId": 77000,
+        "name": "MRT"
+      },
+      "services": []
+    }
+  ]
+}

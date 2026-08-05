@@ -1,0 +1,52 @@
+{
+  "data": {
+    "profile": {
+      "id": 554433,
+      "name_with_title": "Dr. Anna Müller",
+      "subtitle": "Allgemeinmedizin",
+      "telehealth_enabled": false,
+      "redirect_url": "/medecin/dr-anna-mueller"
+    },
+    "visit_motives": [
+      {
+        "id": 55012,
+        "name": "Akutsprechstunde",
+        "telehealth": false,
+        "allow_new_patients": true
+      },
+      {
+        "id": 55013,
+        "name": "Vorsorgeuntersuchung",
+        "telehealth": false,
+        "allow_new_patients": true
+      },
+      {
+        "id": 55014,
+        "name": "Videosprechstunde",
+        "telehealth": true,
+        "allow_new_patients": false
+      }
+    ],
+    "agendas": [
+      {"id": 101, "practice_id": 901, "visit_motive_ids": [55012, 55013]},
+      {"id": 102, "practice_id": 901, "visit_motive_ids": [55014]},
+      {"id": 301, "practice_id": 901, "visit_motive_ids": [55012]}
+    ],
+    "places": [
+      {
+        "id": 901,
+        "name": "Praxis Kantstraße",
+        "address": "Kantstr. 12",
+        "city": "Berlin",
+        "practice_ids": [901]
+      },
+      {
+        "id": 902,
+        "name": "Filiale Charlottenburg",
+        "address": "Wilmersdorfer Str. 50",
+        "city": "Berlin",
+        "practice_ids": [902]
+      }
+    ]
+  }
+}

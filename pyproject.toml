@@ -1,0 +1,23 @@
+[project]
+name = "doctolib-mcp"
+version = "0.1.0"
+description = "MCP tools over Doctolib's internal JSON API: search practitioners, read visit motives, find the earliest bookable slot, and (behind an explicit confirmation) book or cancel"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+    "typer>=0.12",
+    "mcp>=2.0.0",       # 2.0.0 removed mcp.server.fastmcp; server is on MCPServer now
+]
+
+# Authenticated surface (my_appointments, booking) needs a real logged-in session.
+# App-Bound Encryption makes offline cookie extraction from the user's own Chrome
+# infeasible, so we run a dedicated Playwright profile the user logs into once.
+[project.optional-dependencies]
+auth = ["playwright>=1.44"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+doctolib = "doctolib_mcp.cli:app"
+
+[tool.uv]
+package = false

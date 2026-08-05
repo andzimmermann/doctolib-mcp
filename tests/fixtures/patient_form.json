@@ -1,0 +1,23 @@
+{
+  "appointment": {
+    "new_patient": false,
+    "profile_id": 554433,
+    "custom_fields_values": {"chronic_conditions": "none"},
+    "qualification_answers": {"covid_contact": "no"}
+  },
+  "patient": {
+    "gender": "male",
+    "biological_sex": "male",
+    "first_name": "Erika",
+    "last_name": "Mustermann",
+    "email": "erika@example.com",
+    "phone_number": "+491700000000",
+    "birthdate": "1988-01-01",
+    "address": "Kantstr. 12",
+    "zipcode": "10625",
+    "city": "Berlin",
+    "country_of_birth_id": 4711,
+    "place_of_birth_unknown": false,
+    "maiden_name": null
+  }
+}
