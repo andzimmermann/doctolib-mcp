@@ -1,8 +1,8 @@
-> Publication update: the owner has created the personal fork at
-> https://github.com/andzimmermann/doctolib-mcp. The owner has push permission, but
-> app writes still fail with HTTP 403. Accessible app installations list only mysupply-ai;
-> personal-account authorization is missing. No branch or PR has been published.
-> Earlier fork-creation failures below are historical.
+> Publication update: personal GitHub installation 179896653 is now authorized.
+> The complete feature branch was pushed successfully to
+> https://github.com/andzimmermann/doctolib-mcp/tree/feat/personal-appointment-monitor.
+> Earlier GitHub permission/fork failures below are historical. GitHub CI is separate
+> from the local/live deployment evidence and must be checked on the current commit.
 
 # Current deployment — single direct-API Worker
 

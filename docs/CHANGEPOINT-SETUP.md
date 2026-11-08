@@ -46,11 +46,12 @@ add stealth, fake browser identities, challenge bypasses or blind retries in res
   deployment is recorded in IMPLEMENTATION.md.
 - Cron was configured and confirmed by Cloudflare. No job means no medical API work.
 
-The owner created https://github.com/andzimmermann/doctolib-mcp. GitHub reports the owner
-has push permission, but the connected app still rejects both git push and Git Trees writes
-with HTTP 403. Its accessible installation list currently contains only the mysupply-ai
-organization, not the personal andzimmermann account. The personal fork must be authorized
-for the app before publication. No branch, PR or remote CI run has been created.
+The personal fork is https://github.com/andzimmermann/doctolib-mcp. The owner installed
+the connector for the personal account (installation 179896653), after which the feature
+branch feat/personal-appointment-monitor was successfully uploaded. Earlier HTTP 403
+permission failures are resolved. GitHub-hosted workflows validate this branch without
+Cloudflare credentials or any live Doctolib session.
+
 
 ## Final acceptance
 
