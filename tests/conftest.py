@@ -154,6 +154,7 @@ def make_client() -> Callable[..., DoctolibClient]:
         c._http = httpx.Client(
             transport=transport,
             headers=c._http.headers,
+            cookies=c._http.cookies,
             follow_redirects=True,
             timeout=30.0,
         )

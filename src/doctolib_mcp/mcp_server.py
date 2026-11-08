@@ -3,9 +3,9 @@
 Run:  python -m doctolib_mcp.mcp_server   (stdio)
 
 Most of these tools read. Two of them do not: book_appointment commits a real clinical
-slot under Eren's name, and cancel_appointment releases one irreversibly. Both default to
+slot under the user's name, and cancel_appointment releases one irreversibly. Both default to
 confirm=False, which performs no write and returns the payload that would be sent, so the
-agent can read the appointment back to him and get an explicit yes first. Neither should
+agent can read the appointment back to them and get an explicit yes first. Neither should
 ever be called to "check whether it works". Read docs/safety.md before changing either.
 
 The safe alternative is always available: every result carries `profile_url`, and
@@ -21,6 +21,7 @@ import os
 from typing import Optional
 
 from mcp.server import MCPServer
+from mcp.types import ToolAnnotations
 
 from .client import DoctolibClient
 
@@ -31,14 +32,13 @@ mcp = MCPServer("doctolib")
 
 
 def _read_client(country: str) -> DoctolibClient:
-    """A read client authenticated with the login session when one is live, else anonymous.
+    """An account search client requiring a live dedicated login session.
 
     Now that a session exists, the public reads go through it too, so results reflect the
-    backend's patient-level personalisation. Falls back to anonymous silently when there is
-    no login — the tools still work, just without the personalised view.
+    backend's patient-level personalisation. Missing or expired login raises; it never silently changes to the public view.
     """
     from . import session as _session
-    return DoctolibClient(country=country, cookie=_session.try_cookie(country))
+    return DoctolibClient(country=country, cookie=_session.require_cookie(country))
 
 # Slugs Doctolib uses as search keywords. Free text also works; these are just the ones
 # worth naming so the model does not have to guess German medical vocabulary.
@@ -155,22 +155,11 @@ def get_availabilities(
 
 
 @mcp.tool()
-def my_appointments(cookie: Optional[str] = None, country: str = "de") -> dict:
-    """Eren's own Doctolib appointments — confirmed, pending and past.
+def my_appointments(country: str = "de") -> dict:
+    """Read appointments from the dedicated authenticated browser profile.
 
-    Read-only, but authenticated: it returns his real medical calendar. Use it to factor
-    existing appointments into scheduling advice, so as to avoid clashes and spot follow-ups
-    that are already booked.
-
-    Auth comes from the dedicated Doctolib login profile. If there is no live session this
-    opens a browser window for him to sign into and then answers, so there is no need to
-    tell him to run anything first. That can take a minute or two of real time. An explicit
-    `cookie` or DOCTOLIB_COOKIE overrides all of it and takes a lighter path.
+    No credential is accepted as a tool argument. Sign in through the browser.
     """
-    explicit = cookie or os.environ.get("DOCTOLIB_COOKIE")
-    if explicit:
-        from .booking import appointments_via_cookie
-        return appointments_via_cookie(explicit, country)
     # No explicit cookie: read inside the logged-in browser context (most robust).
     from . import session as _session
     from .booking import normalize_appointments
@@ -193,7 +182,7 @@ def session_status(country: str = "de") -> dict:
     return _session.status(country)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False))
 def cancel_appointment(
     appointment_id: str,
     reason: Optional[str] = None,
@@ -203,7 +192,7 @@ def cancel_appointment(
 ) -> dict:
     """⚠️ BINDING ACTION FOR THE USER — THIS CANCELS A REAL APPOINTMENT. ⚠️
 
-    Cancelling releases Eren's slot back to the practice. It is irreversible — the slot may
+    Cancelling releases the user's slot back to the practice. It is irreversible — the slot may
     be taken immediately, and at some practices (e.g. a fertility clinic) rebooking can mean
     a long wait. If the appointment is within ~24h it is a late cancellation, which some
     practices penalise (the appointment's `warn_late_modification` flag marks this).
@@ -259,7 +248,7 @@ def cancel_appointment(
     }
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False))
 def abort_booking_draft(country: str = "de") -> dict:
     """Release any lingering booking draft (a temporary slot hold) on the session.
 
@@ -277,7 +266,7 @@ def abort_booking_draft(country: str = "de") -> dict:
         return {"aborted": False, "note": f"no draft to release, or delete failed: {str(e)[:150]}"}
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False))
 def book_appointment(
     start_date: str,
     profile_id: int,
@@ -288,14 +277,15 @@ def book_appointment(
     insurance_sector: Optional[str] = None,
     new_patient: bool = True,
     patient_name: Optional[str] = None,
+    patient_id: Optional[str] = None,
     resume_url: Optional[str] = None,
     country: str = "de",
 ) -> dict:
     """⚠️ BINDING ACTION FOR THE USER — THEY WILL ACTUALLY REALLY NEED TO GO THERE. ⚠️
 
-    This books a REAL medical appointment at a REAL practice under Eren's real name. It is
-    not a reservation, a query, or a draft. If this succeeds, a clinic has put him in their
-    calendar and a human being expects him to physically show up at that address at that
+    This books a REAL medical appointment at a REAL practice under the user's real name. It is
+    not a reservation, a query, or a draft. If this succeeds, a clinic has put them in their
+    calendar and a human being expects them to physically show up at that address at that
     time. Missing it wastes a clinician's slot, can incur a no-show fee, and can get a
     patient flagged at that practice.
 
@@ -335,7 +325,7 @@ def book_appointment(
                 "start_date": start_date, "profile_id": profile_id,
                 "visit_motive_ids": motives, "agenda_ids": agendas,
                 "practice_ids": practices, "insurance_sector": insurance_sector,
-                "new_patient": new_patient, "patient_name": patient_name,
+                "new_patient": new_patient, "patient_name": patient_name, "patient_id": patient_id,
             },
         }
 
@@ -345,7 +335,7 @@ def book_appointment(
         return c.book(
             start_date=start_date, profile_id=profile_id, visit_motive_ids=motives,
             agenda_ids=agendas, practice_ids=practices, insurance_sector=insurance_sector,
-            new_patient=new_patient, patient_name=patient_name, resume_url=resume_url,
+            new_patient=new_patient, patient_name=patient_name, patient_id=patient_id, resume_url=resume_url,
         )
 
 
@@ -353,8 +343,8 @@ def book_appointment(
 def booking_url(profile_slug: str, country: str = "de") -> dict:
     """The URL a human opens to book with this practitioner in a browser.
 
-    The safe alternative to book_appointment: this only hands Eren a link, it commits
-    nothing. Prefer it whenever he has not explicitly asked you to book a named slot.
+    The safe alternative to book_appointment: this only hands the user a link, it commits
+    nothing. Prefer it whenever the user has not explicitly asked you to book a named slot.
     """
     with DoctolibClient(country=country) as c:
         p = c.practitioner(profile_slug)
@@ -364,6 +354,79 @@ def booking_url(profile_slug: str, country: str = "de") -> dict:
         "booking_url": p["profile_url"] or fallback,
         "note": "Open in a browser and complete the booking manually.",
     }
+
+
+@mcp.tool()
+def list_patients(country: str = "de") -> dict:
+    """List the account's bookable people with stable patient UUIDs.
+
+    Use the exact UUID for a spouse, child or account holder; do not infer a person from a name.
+    """
+    from .session import authed_request
+    data = authed_request("GET", "/account/master_patients.json", country=country)
+    people = data if isinstance(data, list) else data.get("data", [])
+    return {"patients": [{"patient_id": p.get("uuid"), "first_name": p.get("first_name"),
+                           "last_name": p.get("last_name"), "kind": p.get("kind")} for p in people]}
+
+
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False))
+def create_appointment_monitor(
+    profile_slug: str, profile_id: int, visit_motive_id: int, agenda_id: int,
+    practice_id: int, patient_id: str, date_from: str, date_to: str,
+    time_from: str, time_to: str, new_patient: bool,
+    weekdays: str = "0,1,2,3,4,5,6", timezone: str = "Europe/Berlin",
+    interval_seconds: int = 300, auto_book: bool = False,
+    country: str = "de", insurance_sector: Optional[str] = None,
+) -> dict:
+    """Create a persistent instruction for ONE chosen practice, motive and exact patient.
+
+    Requires the local `doctolib watch` scheduler to be running. It checks no faster than
+    every 5 minutes. With auto_book=False it stops when a matching slot is found.
+    Set auto_book=True ONLY when the user has explicitly authorized automatic booking
+    for this exact person/practice/motive/date/time instruction. This authorizes a real
+    booking without asking again when a matching slot appears. It stops after success,
+    expired login, a changed target, or any uncertain booking result. Never create the
+    same automatic instruction twice; list monitors first. Times are local start times;
+    weekdays Monday=0, Sunday=6. No live request or booking happens during creation.
+    """
+    from .monitor import MonitorStore
+    store = MonitorStore()
+    try:
+        return store.create(dict(profile_slug=profile_slug, profile_id=profile_id,
+            visit_motive_id=visit_motive_id, agenda_id=agenda_id, practice_id=practice_id,
+            patient_id=patient_id, date_from=date_from, date_to=date_to, time_from=time_from,
+            time_to=time_to, new_patient=new_patient, weekdays=[int(x) for x in weekdays.split(",")],
+            timezone=timezone, interval_seconds=interval_seconds, auto_book=auto_book,
+            country=country, insurance_sector=insurance_sector))
+    finally:
+        store.close()
+
+
+@mcp.tool()
+def list_appointment_monitors() -> dict:
+    """List stored instructions and their persistent status, including jobs needing review.
+
+    Active means eligible for checking by the separate watch process, not proof it is running.
+    A 'booking' job interrupted by a process crash must be checked manually; never recreate
+    or repeat it without verifying the Doctolib account first.
+    """
+    from .monitor import MonitorStore
+    store = MonitorStore()
+    try:
+        return {"monitors": store.list()}
+    finally:
+        store.close()
+
+
+@mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False))
+def stop_appointment_monitor(monitor_id: str) -> dict:
+    """Stop future checks. This never cancels an existing or already dispatched booking."""
+    from .monitor import MonitorStore
+    store = MonitorStore()
+    try:
+        return store.stop(monitor_id)
+    finally:
+        store.close()
 
 
 if __name__ == "__main__":

@@ -10,12 +10,9 @@ talks to. Three endpoints carry the whole read path:
 
 Two things about this surface are worth knowing before touching it:
 
-DataDome. The site is behind DataDome, but as of 2026-08 it only rejects obviously
-non-browser clients — a default curl/python User-Agent gets a 403 JS challenge, while a
-normal Chrome UA plus a Referer sails through on the JSON endpoints. No cookie, no
-browser, no TLS impersonation needed. That is a behavioural observation, not a contract:
-if these start returning 403, the fix is a real browser session, not more header
-guessing. Note the *HTML* pages are blocked harder than the JSON, so never scrape markup.
+Access policy. Requests identify this assistant honestly. A 403 stops the request; no
+challenge bypass, browser impersonation, or stealth configuration is used. These internal
+endpoints may change or reject automation. Their availability is not guaranteed.
 
 Geocoding. The search body wants `location.place.viewport`, a bounding box. Doctolib's
 own frontend fills this from Google Places (the `placeId: "ChIJ..."` in its requests is a
@@ -39,10 +36,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-CHROME_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
-)
+CHROME_UA = "personal-doctolib-mcp/0.2 (authorized personal appointment assistant)"
 
 # Doctolib caps a single availabilities call at a couple of weeks; longer horizons are
 # walked by advancing start_date rather than raising limit.
@@ -86,7 +80,7 @@ class DoctolibClient:
     patients, the right insurance sector, personalised ranking. Anonymous still works and
     returns the public view; authenticated is strictly the more faithful one where a
     practice personalises at all. Tools source the cookie from the login session
-    automatically and fall back to anonymous when there is none.
+    automatically and require a live session; they never silently fall back to anonymous.
     """
 
     def __init__(self, country: str = "de", timeout: float = 30.0, cookie: Optional[str] = None) -> None:
@@ -102,9 +96,13 @@ class DoctolibClient:
             "Accept-Language": f"{country}-{country.upper()},{country};q=0.9,en;q=0.8",
             "Referer": self.base + "/",
         }
+        self._http = httpx.Client(timeout=timeout, follow_redirects=False, headers=headers)
         if cookie:
-            headers["Cookie"] = cookie
-        self._http = httpx.Client(timeout=timeout, follow_redirects=True, headers=headers)
+            from http.cookies import SimpleCookie
+            jar = SimpleCookie()
+            jar.load(cookie)
+            for name, value in jar.items():
+                self._http.cookies.set(name, value.value, domain=urlparse(self.base).hostname, path="/")
 
     def close(self) -> None:
         self._http.close()
@@ -119,19 +117,21 @@ class DoctolibClient:
 
     def _request(self, method: str, url: str, **kw: Any) -> Any:
         self._throttle.wait(url)
+        if urlparse(url).netloc != urlparse(self.base).netloc:
+            raise DoctolibError("Refusing a non-Doctolib API destination")
         r = self._http.request(method, url, **kw)
         if r.status_code == 403:
             raise DoctolibError(
                 "403 from Doctolib: DataDome is now challenging this client. "
-                "Header spoofing is no longer enough; drive a real browser session instead."
+                "Access denied; stop this request. Do not bypass the challenge."
             )
         # The search endpoint answers 206 Partial Content on success (paged results).
         if r.status_code not in (200, 206):
-            raise DoctolibError(f"HTTP {r.status_code} for {url}: {r.text[:200]}")
+            raise DoctolibError(f"HTTP {r.status_code} from Doctolib")
         try:
             return r.json()
         except ValueError as e:
-            raise DoctolibError(f"non-JSON response from {url}: {r.text[:200]}") from e
+            raise DoctolibError("non-JSON response from Doctolib") from e
 
     # ---------------------------------------------------------------- geocoding
 
@@ -308,6 +308,8 @@ class DoctolibClient:
             agenda_ids = [agenda_ids]
         start = start_date or date.today().isoformat()
         cursor = datetime.fromisoformat(start).date()
+        if not 1 <= days <= 90:
+            raise DoctolibError("days must be between 1 and 90")
         remaining = max(2, days)
         out: list[dict] = []
         total = 0
@@ -361,6 +363,8 @@ class DoctolibClient:
         time, which is exactly the part that does not scale when you want the first free
         appointment rather than a particular doctor.
         """
+        if not 1 <= limit <= 50:
+            raise DoctolibError("limit must be between 1 and 50")
         found = self.search(
             specialty, city=city, place=place, insurance_sector=insurance_sector,
             languages=languages, telehealth=telehealth,
@@ -389,9 +393,14 @@ class DoctolibClient:
             probed = [r for r in pool.map(probe, candidates) if r]
 
         with_slots = sorted(
-            (p for p in probed if p.get("first_slot")), key=lambda p: p["first_slot"]
+            (p for p in probed if p.get("first_slot")), key=lambda p: p["first_slot"]["start_date"] if isinstance(p["first_slot"], dict) else p["first_slot"]
         )
+        failures = [p for p in probed if p.get("error")]
+        if candidates and len(failures) == len(candidates):
+            raise DoctolibError("All availability checks failed; availability is unknown")
         return {
+            "failed_checks": len(failures),
+            "partial_results": bool(failures),
             "searched": len(candidates),
             "with_availability": len(with_slots),
             "total_matching_practitioners": found["total"],

@@ -1,31 +1,9 @@
-"""Authenticated session via a dedicated Playwright browser profile.
+"""Dedicated user-controlled browser login for the personal appointment assistant.
 
-The problem this solves: the authenticated surface (my_appointments, booking) needs
-Eren's real logged-in Doctolib session, but his own Chrome wraps its cookie store in
-App-Bound Encryption, so there is no reliable way to lift the cookie out of it offline.
-
-The answer is to not try. Instead this owns a *separate* browser profile — a persistent
-Playwright user-data-dir under `.session/<country>/` — that Eren logs into once, loudly,
-in a window that pops up. That profile then holds the session (cookie, DataDome device
-token, everything) exactly as a browser would, and survives restarts. Re-login is only
-needed when Doctolib actually expires the session.
-
-Two ways the rest of the code consumes it, in order of robustness:
-
-- `authed_request()` runs the call *inside* the logged-in browser context. Real TLS
-  fingerprint, real cookies, real DataDome device — this is what booking uses, because a
-  write path is the wrong place to discover that a cookie replay looks like a bot.
-- `cookie_header()` exports the cookie string for httpx replay, for callers that prefer
-  the lighter path and can tolerate a DataDome block as a clean failure.
-
-`login()` is interactive by design and always shows a window. What the authenticated helpers
-do when they find no session is spawn it: `authed_request` and `AuthedBrowser` catch their
-own `NotLoggedIn`, run `doctolib login` as a subprocess, and retry once if it exits 0. See
-the auto-login block further down for why it is a subprocess, how to switch it off with
-`DOCTOLIB_AUTO_LOGIN=0` for unattended callers, and how it backs off and serialises.
-
-The read path is deliberately excluded. `try_cookie` never prompts and never raises, so a
-plain search falls back to the anonymous public view instead of opening a browser.
+No credentials are accepted through MCP tool arguments. Interactive login uses a normal
+visible browser without stealth flags. Search requires a live account session. Unattended
+monitoring disables auto-login and pauses on missing/expired sessions or access denials.
+The profile contains sensitive credentials and must never be committed or shared.
 """
 from __future__ import annotations
 
@@ -51,8 +29,9 @@ class NotLoggedIn(DoctolibError):
 
 
 def _profile_dir(country: str) -> Path:
+    _base(country)
     d = SESSION_ROOT / country
-    d.mkdir(parents=True, exist_ok=True)
+    d.mkdir(parents=True, exist_ok=True, mode=0o700)
     return d
 
 
@@ -99,7 +78,6 @@ def login(country: str = "de", timeout_s: int = 300) -> dict:
         ctx = p.chromium.launch_persistent_context(
             user_data_dir=str(_profile_dir(country)),
             headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
             viewport={"width": 1280, "height": 900},
         )
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -159,7 +137,8 @@ def cookie_header(country: str = "de") -> str:
             cookies = ctx.cookies(base)
         finally:
             ctx.close()
-    pairs = [f"{c['name']}={c['value']}" for c in cookies if c.get("domain", "").lstrip(".") in host or "doctolib" in c.get("domain", "")]
+    pairs = [f"{c['name']}={c['value']}" for c in cookies
+             if c.get("domain", "").lstrip(".") in (host, host.removeprefix("www."))]
     if not pairs:
         raise NotLoggedIn("session profile holds no doctolib cookies. Run `doctolib login`")
     return "; ".join(pairs)
@@ -451,3 +430,13 @@ class AuthedBrowser:
         if out["status"] >= 400:
             raise DoctolibError(f"HTTP {out['status']} on {path}: {str(out['data'])[:300]}")
         return out["data"]
+
+
+def require_cookie(country: str = "de") -> str:
+    """Account searches fail closed instead of silently changing to an anonymous view."""
+    try:
+        return cookie_header(country)
+    except NotLoggedIn:
+        if not try_auto_login(country):
+            raise
+        return cookie_header(country)

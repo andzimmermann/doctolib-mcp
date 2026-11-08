@@ -22,8 +22,8 @@ def _out(obj: object) -> None:
 def _client(country: str) -> DoctolibClient:
     """Authenticated with the login session if one is live, else anonymous — mirrors the
     MCP read tools so the CLI sees the same personalised results."""
-    from .session import try_cookie
-    return DoctolibClient(country=country, cookie=try_cookie(country))
+    from .session import require_cookie
+    return DoctolibClient(country=country, cookie=require_cookie(country))
 
 
 @app.command()
@@ -133,6 +133,32 @@ def slots(
     ids = [int(a) for a in agenda_ids.replace("-", ",").split(",") if a.strip()]
     with _client(country) as c:
         _out(c.availabilities(visit_motive_id, ids, practice_id, start_date=start_date, days=days))
+
+
+
+
+
+@app.command()
+def watch() -> None:
+    """Run persistent monitor jobs until interrupted. Never opens a login dialog.
+
+    Complete login interactively first. Use a local service manager to restart this process.
+    The watcher respects each job's polling interval and never retries an uncertain write.
+    """
+    import time
+    import os
+    from .monitor import MonitorStore
+    os.environ['DOCTOLIB_AUTO_LOGIN'] = '0'
+    store = MonitorStore()
+    try:
+        while True:
+            for event in store.tick():
+                _out(event)
+            time.sleep(30)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        store.close()
 
 
 if __name__ == "__main__":
