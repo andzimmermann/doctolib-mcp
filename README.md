@@ -3,7 +3,8 @@
 A direct API MCP in the **ChangePoint.eu Cloudflare account**. One deployed Worker handles
 MCP requests and its own five-minute Cron schedule. An exported SQLite Durable Object in
 that same Worker stores private jobs, serializes the personal account and records booking
-outcomes. No separate backend server or permanently running browser service is used.
+outcomes. No separate backend server or permanently running browser service is used. A temporary
+Cloudflare Browser Run session is used only when the owner renews their login.
 
 Endpoint: `https://doctolib-mcp-changepoint.changepoint-eu.workers.dev/mcp`
 
@@ -41,26 +42,30 @@ cookies are not accepted as model-facing tool arguments or returned to the model
 
 ## Connect your Doctolib account
 
-Use the normal Doctolib website login with password and possible 2FA. The optional helper
-opens a **temporary visible browser for that login only**, validates the session, transfers
-only Doctolib cookies over HTTPS to the authenticated ChangePoint Worker and removes its
-local temporary profile. The Worker validates the session again and encrypts it at rest.
-There is no permanently running local process or external hosting requirement.
+Open [the connection page](https://doctolib-mcp-changepoint.changepoint-eu.workers.dev/connect)
+on your iPhone or computer. No shell, Python installation or local helper is required:
 
-On your own machine, in this source checkout:
+1. Unlock the connection page with your personal MCP token. A Secure, HttpOnly,
+   SameSite=Strict setup cookie remembers that browser for up to 30 days. Rotating the
+   MCP credential invalidates it; it never grants MCP/account-read access.
+2. Prepare the login window and select **Doctolib öffnen**. This opens a temporary
+   Cloudflare Live View in another tab. Sign into Doctolib there, including any 2FA.
+3. Return to the connection page and select **Sitzung übernehmen**. The Worker verifies
+   the imported account session, encrypts cookies and closes the temporary browser.
+   An incomplete or rejected login never reports success. You can cancel the window.
 
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install playwright
-.venv/bin/python -m playwright install chromium
-.venv/bin/python scripts/connect-doctolib.py
-```
+The same Worker's `BROWSER` binding starts a guarded session limited to Doctolib domains
+and shared CDNs. No browser session recording is requested. Neither passwords nor cookies
+are sent through ChatGPT tools. The temporary browser idles out after ten minutes;
+the server rejects and cleans up the handoff after twenty minutes. Live View links are
+short-lived credentials and must not be published or logged. Reopening the handoff renews
+the link to the same browser. Authenticated MCP errors return the public `reconnect_url`
+and explain this flow instead of referring users to ChatGPT plugin settings.
 
-Enter the MCP token in the hidden terminal prompt; enter your Doctolib password/2FA only
-in Doctolib's own browser page. No passwords or tokens belong in chat. The helper does
-not follow upload redirects or print cookies/tokens. Session expiration requires a fresh
-login; no refresh-token capability is claimed. A private `DOCTOLIB_COOKIE` Worker Secret
-is also supported for owner-managed imports, but the validated connector is preferred.
+This is session renewal, not a Doctolib OAuth/refresh-token grant. Doctolib can still expire
+or revoke the session; no unlimited login lifetime is claimed. The existing
+`scripts/connect-doctolib.py` remains an optional desktop fallback, not a prerequisite.
+A private `DOCTOLIB_COOKIE` Worker Secret also supports owner-managed imports.
 
 ## Create an exact standing instruction
 
@@ -109,7 +114,7 @@ PYTHONPATH=src .venv/bin/python -m pytest -q
 The Worker suite executes in workerd with actual MCP transport/SQLite and simulated
 Doctolib responses. It verifies exact family-member selection, uncertainty after commit,
 persistence across restart, monitor stop-after-booking, authentication, session import,
-no credential leakage and denial handling. Python reference tests block real network I/O.
+no credential leakage, mobile connection authorization, handoff lifecycle and denial handling. Python reference tests block real network I/O.
 GitHub-hosted test workflows are included; no self-hosted runner is required.
 The personal fork is https://github.com/andzimmermann/doctolib-mcp.
 

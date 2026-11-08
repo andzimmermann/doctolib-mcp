@@ -1,8 +1,9 @@
 # ChangePoint single-Worker setup
 
-Accepted target: one Worker calling Doctolib's internal APIs directly. The previous external
-Python HTTP backend and the later Browser Run proposal are superseded. They are not required
-components of the deployed architecture. Browser services and external servers were not created.
+One Worker calls Doctolib's internal APIs directly. Its temporary Browser Run binding is
+used only for interactive login from an iPhone or desktop. It closes after validated
+session import; MCP requests and appointment Cron checks remain direct API operations.
+No external Python server, extra Worker, or permanent browser service is required.
 
 - Account: changepoint.eu, `e663440b575a5919d90eac9d7ce69f58`.
 - Worker: `doctolib-mcp-changepoint`.
@@ -20,13 +21,24 @@ with owner-only permissions and never printed. `SESSION_KEY` is an independent A
 stored as a Worker Secret. It encrypts imported/rotated Doctolib cookies in the same Worker's
 state. No session credential is exposed as an MCP tool argument or result.
 
-A validated login import is `POST /setup/session`, authenticated with the MCP token and
-limited to the canonical origin. Only a bounded `cookie` field is accepted. The Worker
-checks the account API before saving the session encrypted. This is not an OAuth endpoint.
-The helper in `scripts/connect-doctolib.py` opens a transient normal browser, lets the owner
-sign into Doctolib including possible 2FA, and transfers the resulting Doctolib cookies to
-the fixed Worker endpoint. No password is sent to the Worker. No permanent local service
-is started. An optional private `DOCTOLIB_COOKIE` secret supports owner-managed imports.
+The primary login entry point is `/connect`. Unlock it with the existing personal MCP
+token; a signed, Secure/HttpOnly/SameSite=Strict setup cookie remembers the device for up
+to 30 days. The cookie is bound to the current MCP credential and cannot authorize MCP
+requests. Browser actions require exact same-origin POSTs and bounded JSON bodies.
+
+The `BROWSER` binding starts a twenty-minute maximum handoff using `@cloudflare/puppeteer`
+1.4.0 and a Doctolib/CDN guardrail policy. The user enters password/2FA directly into the
+Doctolib page inside Cloudflare's Live View, not into ChatGPT or a custom password form.
+No browser recording is enabled. The setup page receives a short-lived Live View link,
+which must be treated as a secret and never logged. It reuses the current browser when
+renewing that link. Completion filters cookies to the exact Doctolib domain/path,
+validates the account API, encrypts them in the existing state object and closes the
+browser. Cancellation, idle timeout and server expiry limit its lifetime. Pending handoff
+state and a separate login-operation lease survive restarts. Incomplete authentication
+never overwrites the existing session or reports success.
+
+`POST /setup/session` remains a bounded MCP-token-protected import for the optional
+desktop helper, not a requirement for iPhone users. This is not a Doctolib OAuth endpoint.
 
 The real authenticated APIs may reject replayed cookies or expire them. Anonymous search
 success is not proof that the personal-account booking flow works from this runtime. Do not
@@ -60,8 +72,20 @@ practice, then enable writes only for the user's specific real booking/monitor i
 No appointment should be booked merely to prove connectivity. Unknown outcomes must be
 checked in the account, never blindly repeated. Session expiry pauses account operations.
 
-Final tested deployment: `734fc00e1b52424bbabbbb02c0b9afb0`.
+Earlier direct-only deployment: `734fc00e1b52424bbabbbb02c0b9afb0`.
 Bundle SHA-256: `c3745a149b414206c960b980ac1dd24afff4fade010e309ab76570c2597ef422`.
 The unused legacy BACKEND_TOKEN remains stored because automatic approval review
 rejected deletion without explicit authorization for that exact credential. Current
 code does not reference it; no workaround was used to delete it.
+
+
+## Mobile login deployment
+
+Deployment `17c88640a7c34788ab2ad1c1a2047c37` adds the mobile `/connect` flow and the same
+Worker's Browser Run binding. Bundle SHA-256:
+`f3246850c2555c9a681a57ac0eae6e8936c335ebfddef89c68f16945127b53d0`.
+All 27 local tests pass; the 390-pixel touch viewport flow was exercised with simulated
+login/import responses and no horizontal overflow. Live unlock, browser availability,
+Doctolib page navigation and generation of a signed Live View link succeeded. Temporary
+test browsers are closed afterward. An actual patient login/import still requires the
+owner to complete password/2FA; no real booking or cancellation was performed.
