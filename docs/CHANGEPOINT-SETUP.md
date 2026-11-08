@@ -1,9 +1,8 @@
 # ChangePoint.eu deployment preparation
 
 Deployment destination is **ChangePoint.eu only**. No resource may be created in the
-MySupply account (`833dd808aa2112d0b1618215253f1795`). The current Cloudflare connection
-listed only that account; the ChangePoint account must be connected/identified first.
-No Doctolib Cloudflare resource has been created.
+MySupply account (`833dd808aa2112d0b1618215253f1795`). The ChangePoint account is now connected: `e663440b575a5919d90eac9d7ce69f58`.
+The gateway setup is deployed there; no browser backend is configured yet.
 
 The GitHub fork `andzimmermann/doctolib-mcp` is still absent. The connected GitHub app
 cannot create forks (HTTP 403); the owner must create the fork before uploading the commits.
@@ -88,8 +87,8 @@ Only after confirming the ChangePoint account, fill:
 - `BACKEND_HOST`: exact hostname of that URL.
 - `DEPLOYMENT_OWNER` remains `changepoint.eu`.
 
-Never default to an account from an unrelated Wrangler login. The source config deliberately
-has no account ID and blank routing settings; it is not ready for a functional deployment.
+Never default to an account from an unrelated Wrangler login. The source config explicitly selects the ChangePoint account and public gateway origin.
+Backend routing remains blank; it is not ready for a functional Doctolib connection.
 Configure the actual target in a private deployment configuration before running Wrangler.
 Review existing DNS before creating a custom hostname. Do not assume a hostname is free.
 
@@ -115,3 +114,19 @@ interactive Doctolib login and exact linked-patient identities. Only then create
 authorized practice/person/date/time monitor. No live appointment has been booked or cancelled
 and no monitor is active during this preparation. Never book a real appointment merely to
 check connectivity.
+
+## Deployment evidence — 2026-11-08
+
+- Account: `changepoint.eu account`, `e663440b575a5919d90eac9d7ce69f58`.
+- Created account workers.dev subdomain `changepoint-eu`.
+- Worker: `doctolib-mcp-changepoint`.
+- Public URL: `https://doctolib-mcp-changepoint.changepoint-eu.workers.dev/mcp`.
+- Initial deployment: `837c301088504a29934eccddb17f0259`. Secret updates create subsequent versions.
+- Source module SHA-256: `8db79d014bf809612869f5889d6b59cdbff4478412ff9d73968ab5a7b17fc388`.
+- Confirmed encrypted secret binding names `MCP_TOKEN_SHA256` and `BACKEND_TOKEN`; values not printed.
+- workers.dev enabled; preview URLs disabled.
+- Initial public checks failed during TLS negotiation of the newly created subdomain.
+  This was a transport failure, not an application health response. Public readiness is
+  not yet verified. Do not disable certificate verification.
+- Backend URL/host intentionally blank. No Doctolib session or job is active.
+- GitHub fork retry still failed with HTTP 403 from the connected integration.

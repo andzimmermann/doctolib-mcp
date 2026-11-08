@@ -7,7 +7,7 @@
   "preview_urls": false,
   "vars": {
     "DEPLOYMENT_OWNER": "changepoint.eu",
-    "PUBLIC_ORIGIN": "",
+    "PUBLIC_ORIGIN": "https://doctolib-mcp-changepoint.changepoint-eu.workers.dev",
     "BACKEND_URL": "",
     "BACKEND_HOST": ""
   },
@@ -31,5 +31,6 @@
   },
   "compatibility_flags": [
     "global_fetch_strictly_public"
-  ]
+  ],
+  "account_id": "e663440b575a5919d90eac9d7ce69f58"
 }

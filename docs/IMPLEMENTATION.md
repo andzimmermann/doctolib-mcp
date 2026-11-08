@@ -45,3 +45,12 @@ Cloudflare account enumeration returned only `mysupply.ai account`
 (`833dd808aa2112d0b1618215253f1795`). It was not used for any Doctolib mutation.
 No ChangePoint account, persistent browser host or remote endpoint is confirmed yet.
 No remote services, login or monitor have been started. The GitHub fork remains absent.
+
+## ChangePoint retry — 2026-11-08
+
+The connection now lists ChangePoint account e663440b575a5919d90eac9d7ce69f58.
+A new workers.dev subdomain and the tested gateway module were deployed there.
+Two secrets were provisioned without displaying their values; binding names verified.
+Initial external TLS handshake failed; application readiness is not yet established.
+Backend hosting and GitHub fork creation remain unresolved. No MySupply mutation,
+Doctolib login, monitor activation, booking or cancellation took place.
