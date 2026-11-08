@@ -65,7 +65,11 @@ is also supported for owner-managed imports, but the validated connector is pref
 ## Create an exact standing instruction
 
 Use `list_patients` to choose the account holder, spouse, child or other linked person by
-stable `patient_id`. Use `get_practitioner` to choose the exact doctor/practice, calendar,
+stable `patient_id`. Availability/search and booking inherit that person's insurance
+when `patient_id` is supplied. If Doctolib has no recognized insurance status, provide
+an explicit user-confirmed override; another family member's status is never reused.
+The same filter is forwarded for each availability window and scheduled check.
+Use `get_practitioner` to choose the exact doctor/practice, calendar,
 location and visit motive. The monitor binds those IDs to an inclusive date range (maximum
 90 days), local start-time window, timezone, weekdays and new/existing-patient status.
 

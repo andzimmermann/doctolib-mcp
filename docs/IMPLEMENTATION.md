@@ -1,3 +1,10 @@
+> Insurance correction: availability requests now forward insurance_sector, including
+> chunked searches, earliest-appointment scans and scheduled checks. A selected patient_id
+> supplies the normalized account insurance automatically; missing status is never guessed.
+> Live person-specific filtering returned bookable slots. No appointment was booked and
+> no medical/account identifiers or appointment details are included in this publication.
+> 17 Worker runtime tests passed. Deployment fd18239778c24409883067bcc667469c.
+
 > Publication update: personal GitHub installation 179896653 is now authorized.
 > The complete feature branch was pushed successfully to
 > https://github.com/andzimmermann/doctolib-mcp/tree/feat/personal-appointment-monitor.
