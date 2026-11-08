@@ -6,14 +6,14 @@ import {Miniflare,Response as MFResponse} from 'miniflare';
 const TOKEN='fake_client_token_for_offline_tests_only_1234567890';
 const fixture=async name=>JSON.parse(await readFile(new URL('../tests/fixtures/'+name+'.json',import.meta.url),'utf8'));
 const origin='https://mcp.example.test';
-async function instance(t,{cookie=true,confirmationFails=false,commitFails=false,changePatient=false}={}){
+async function instance(t,{cookie=true,confirmationFails=false,commitFails=false,changePatient=false,keepAlive=false,patientResponse=null}={}){
  const people=await fixture('master_patients'),profile=await fixture('practitioner_info'),form=await fixture('patient_form');
  const tomorrow=new Date(Date.now()+86400000).toISOString().slice(0,10),slot=tomorrow+'T10:00:00+01:00';const calls=[];
- const vars={DEPLOYMENT_OWNER:'changepoint.eu',PUBLIC_ORIGIN:origin,DIRECT_MODE:'true',ENABLE_WRITES:'true',SESSION_KEY:'ab'.repeat(32),MCP_TOKEN_SHA256:createHash('sha256').update(TOKEN).digest('hex'),...(cookie?{DOCTOLIB_COOKIE:'session=FAKE_TEST_ONLY'}:{})};
+ const vars={DEPLOYMENT_OWNER:'changepoint.eu',PUBLIC_ORIGIN:origin,DIRECT_MODE:'true',ENABLE_WRITES:'true',SESSION_KEEP_ALIVE:String(keepAlive),SESSION_KEY:'ab'.repeat(32),MCP_TOKEN_SHA256:createHash('sha256').update(TOKEN).digest('hex'),...(cookie?{DOCTOLIB_COOKIE:'session=FAKE_TEST_ONLY'}:{})};
  const env=Object.fromEntries(Object.entries(vars).map(([k,value])=>[k,{type:'text',value}]));env.ACCOUNT_STATE={type:'durable-object',worker:'direct-test',exportName:'DoctolibAccount'};
  const options={cf:false,enableDevRegistry:false,logRequests:false,telemetry:{enabled:false},workers:[{config:{name:'direct-test',compatibilityDate:'2026-11-08',compatibilityFlags:['nodejs_compat','global_fetch_strictly_public'],exports:{DoctolibAccount:{type:'durable-object',storage:'sqlite'}},env,manifest:{mainModule:'worker.mjs',modules:{'worker.mjs':{type:'esm',contents:await readFile(new URL('../cloudflare/dist-worker/worker.js',import.meta.url),'utf8')}}}},dev:{outboundService:{type:'fetcher',async handler(r){
   const u=new URL(r.url);assert.equal(u.hostname,'www.doctolib.de');assert.equal(r.headers.get('authorization'),null);assert.equal(r.headers.get('cookie'),'session=FAKE_TEST_ONLY');calls.push({path:u.pathname,query:Object.fromEntries(u.searchParams),method:r.method,body:r.method==='POST'||r.method==='DELETE'?await r.json():null});
-  if(u.pathname==='/account/master_patients.json')return MFResponse.json(people);
+  if(u.pathname==='/account/master_patients.json')return patientResponse?patientResponse(people,r):MFResponse.json(people);
   if(u.pathname.includes('slot_selection_funnel/v1/info'))return MFResponse.json(profile);
   if(u.pathname==='/availabilities.json')return MFResponse.json({total:1,availabilities:[{date:tomorrow,slots:[{start_date:slot}]}]});
   if(u.pathname==='/account/appointments')return new MFResponse('<meta name="csrf-token" content="FAKE_CSRF">',{headers:{'content-type':'text/html'}});
@@ -44,3 +44,41 @@ test('a failed patient preflight never reserves or sends a write',async t=>{cons
 test('availability requests forward private insurance through MCP and chunked dates',async t=>{const x=await instance(t);await x.tool('get_availabilities',{visit_motive_id:55012,agenda_ids:[101],practice_id:901,insurance_sector:'private',start_date:x.tomorrow,days:16});const calls=x.calls.filter(c=>c.path==='/availabilities.json');assert.equal(calls.length,2);assert.ok(calls.every(c=>c.query.insurance_sector==='private'));assert.notEqual(calls[0].query.start_date,calls[1].query.start_date);});
 test('selected person supplies insurance automatically without a filter argument',async t=>{const x=await instance(t);x.people[1].insurance_sector='privat';const r=await x.tool('get_availabilities',{patient_id:x.people[1].uuid,visit_motive_id:55012,agenda_ids:[101],practice_id:901,start_date:x.tomorrow,days:14});assert.ok(!r.isError,JSON.stringify(r));assert.equal(x.calls.find(c=>c.path==='/availabilities.json').query.insurance_sector,'private');});
 test('insurance stays person-specific and unknown status is not guessed',async t=>{const x=await instance(t);x.people[1].insurance_sector='privat';delete x.people[2].insurance_sector;const args={visit_motive_id:55012,agenda_ids:[101],practice_id:901,start_date:x.tomorrow,days:14};const missing=await x.tool('get_availabilities',{...args,patient_id:x.people[2].uuid});assert.equal(missing.error,'PATIENT_INSURANCE_REQUIRED');assert.equal(x.calls.filter(c=>c.path==='/availabilities.json').length,0);await x.tool('get_availabilities',{...args,patient_id:x.people[0].uuid});assert.equal(x.calls.find(c=>c.path==='/availabilities.json').query.insurance_sector,'public');});
+
+// Daily background checks are independent of appointment searches and never write bookings.
+test('daily session check runs once without monitors and retains schedule across restart',async t=>{
+ const x=await instance(t,{keepAlive:true});await x.stub.tick();await x.stub.tick();
+ assert.deepEqual(x.calls.map(c=>c.path),['/account/master_patients.json']);
+ const state=JSON.parse(await x.stub.get('session_keep_alive'));
+ assert.equal(state.next_check-state.last_attempt,86400000);assert.ok(state.last_success);assert.equal(state.paused,false);
+ const w=x.options.workers[0];await x.mf.setOptions({...x.options,workers:[{...w,config:{...w.config,manifest:{mainModule:'worker.mjs',modules:{'worker.mjs':{type:'esm',contents:(await readFile(new URL('../cloudflare/dist-worker/worker.js',import.meta.url),'utf8'))+'\n// daily restart test'}}}}}]});
+ const ns=await x.mf.getDurableObjectNamespace('ACCOUNT_STATE');x.stub=ns.get(ns.idFromName('personal-de'));
+ await x.stub.tick();assert.equal(x.calls.length,1);
+ await x.stub.set('session_keep_alive',JSON.stringify({...state,next_check:0}));await x.stub.tick();assert.equal(x.calls.length,2);
+ const status=await x.tool('session_status');assert.equal(status.keep_alive.enabled,true);assert.equal(status.keep_alive.interval_seconds,86400);
+});
+test('daily checks pause on revoked sessions and resume only after a valid import',async t=>{
+ for(const status of [401,403]){
+  let expired=true;const x=await instance(t,{keepAlive:true,patientResponse:people=>expired?MFResponse.json({}, {status}):MFResponse.json(people)});
+  await x.stub.tick();await x.stub.tick();assert.equal(x.calls.length,1);
+  const state=JSON.parse(await x.stub.get('session_keep_alive'));assert.equal(state.paused,true);assert.equal(state.next_check,null);
+  expired=false;const imported=await x.stub.importSession('session=FAKE_TEST_ONLY');assert.equal(imported.ok,true);
+  const resumed=JSON.parse(await x.stub.get('session_keep_alive'));assert.equal(resumed.paused,false);assert.ok(resumed.next_check>Date.now());
+  await x.stub.tick();assert.equal(x.calls.length,2);
+ }
+});
+test('daily transient failures wait a day and never trigger rapid retries',async t=>{
+ const x=await instance(t,{keepAlive:true,patientResponse:()=>MFResponse.json({}, {status:500})});await x.stub.tick();await x.stub.tick();
+ assert.equal(x.calls.length,1);const state=JSON.parse(await x.stub.get('session_keep_alive'));
+ assert.equal(state.paused,false);assert.equal(state.last_success,null);assert.equal(state.error,'DOCTOLIB_HTTP_500');assert.equal(state.next_check-state.last_attempt,86400000);
+});
+test('disabled or missing-session keep-alive makes no requests',async t=>{
+ for(const options of [{keepAlive:false},{keepAlive:true,cookie:false}]){const x=await instance(t,options);await x.stub.tick();assert.equal(x.calls.length,0);}
+});
+test('daily check saves rotated cookies encrypted for subsequent requests',async t=>{
+ let n=0;const x=await instance(t,{keepAlive:true,patientResponse:people=>MFResponse.json(people,{headers:++n===1?{'set-cookie':'renewed=FAKE_ROTATED; Path=/; Secure; HttpOnly'}:{}})});
+ await x.stub.tick();const stored=await x.stub.get('session');assert.ok(stored);assert.ok(!stored.includes('FAKE_ROTATED'));
+ const encrypted=JSON.parse(stored),key=await crypto.subtle.importKey('raw',Uint8Array.from({length:32},()=>0xab),'AES-GCM',false,['decrypt']);
+ const plain=new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:Uint8Array.from(encrypted.iv)},key,Uint8Array.from(encrypted.value)));
+ assert.ok(plain.includes('renewed=FAKE_ROTATED'));assert.ok(x.calls.every(c=>c.method==='GET'));
+});

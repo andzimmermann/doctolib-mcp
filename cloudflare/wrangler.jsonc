@@ -9,7 +9,8 @@
     "DEPLOYMENT_OWNER": "changepoint.eu",
     "PUBLIC_ORIGIN": "https://doctolib-mcp-changepoint.changepoint-eu.workers.dev",
     "DIRECT_MODE": "true",
-    "ENABLE_WRITES": "false"
+    "ENABLE_WRITES": "false",
+    "SESSION_KEEP_ALIVE": "true"
   },
   "secrets": {
     "required": [

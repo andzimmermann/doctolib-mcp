@@ -77,7 +77,15 @@ location and visit motive. The monitor binds those IDs to an inclusive date rang
 a matching slot for **that exact person and target** without another prompt. It requires
 server writes to be enabled after account setup. The same Worker checks due jobs every
 five minutes, stops after successful booking and pauses on expired login, changed target,
-errors or an uncertain booking. Empty schedules make no Doctolib calls.
+errors or an uncertain booking. Empty appointment schedules make no appointment searches.
+
+With `SESSION_KEEP_ALIVE=true`, the same Cron additionally makes one authenticated, read-only
+session check per 24 hours, even without appointment monitors. Rotated cookies are encrypted
+and saved. Attempt times survive restarts; network errors wait until the next daily attempt.
+Authentication or access-denial errors pause this background check until a successful session
+import. `session_status` reports its timestamps and pause state. This can help with inactivity
+expiry only if Doctolib renews the session; it cannot extend a fixed expiry or replace a new
+login after revocation. No notification channel or guaranteed session lifetime is provided.
 
 `booking` or `needs_review` statuses require checking the account before any replacement
 instruction. Pending or unknown writes survive runtime restart and are never automatically
