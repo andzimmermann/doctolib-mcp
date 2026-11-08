@@ -1,5 +1,5 @@
 import {DurableObject} from 'cloudflare:workers';
-import {browserLogin} from './browser-login.mjs';
+import {browserLogin,loginCheckpoint} from './browser-login.mjs';
 import {ApiError,DocAPI,exactPatient,patientInsurance,book,sha} from './direct-api.mjs';
 const enc=new TextEncoder();
 function ruleTime(raw,zone){const date=new Date(raw);if(!Number.isFinite(date.getTime())||!/[Zz]|[+-]\d\d:\d\d$/.test(raw))throw new ApiError('TIMEZONE_REQUIRED');const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',weekday:'short',hourCycle:'h23'}).formatToParts(date).map(p=>[p.type,p.value]));return {date:parts.year+'-'+parts.month+'-'+parts.day,time:parts.hour+':'+parts.minute,weekday:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].indexOf(parts.weekday),millis:date.getTime()};}
@@ -24,7 +24,7 @@ export class DoctolibAccount extends DurableObject {
   if(action==='status')return browserLogin(this,action,id);
   const lock=JSON.parse(this.get('browser_login_lock')||'null');if(lock&&lock.until>Date.now())return {ok:false,error:'LOGIN_OPERATION_IN_PROGRESS'};
   const owner=crypto.randomUUID();this.set('browser_login_lock',JSON.stringify({owner,until:Date.now()+120000}));await this.ctx.storage.sync();
-  try{return await browserLogin(this,action,id);}catch(e){return {ok:false,error:e.code||'LOGIN_FAILED'};}finally{const current=JSON.parse(this.get('browser_login_lock')||'null');if(current?.owner===owner)this.ctx.storage.sql.exec('DELETE FROM meta WHERE key=?','browser_login_lock');}
+  try{return await browserLogin(this,action,id);}catch(e){const error=/^[A-Z_0-9]+$/.test(e.code||'')?e.code:'LOGIN_FAILED';const stage=JSON.parse(this.get('browser_login_result')||'null')?.stage||'request';if(action!=='expire')loginCheckpoint(this,action,stage,error);return {ok:false,error,stage};}finally{const current=JSON.parse(this.get('browser_login_lock')||'null');if(current?.owner===owner)this.ctx.storage.sql.exec('DELETE FROM meta WHERE key=?','browser_login_lock');}
  }
  async key(){if(!/^[a-f0-9]{64}$/.test(this.env.SESSION_KEY||''))throw new ApiError('SESSION_STORAGE_KEY_REQUIRED',503);return crypto.subtle.importKey('raw',Uint8Array.from(this.env.SESSION_KEY.match(/../g),b=>parseInt(b,16)),'AES-GCM',false,['encrypt','decrypt']);}
  async saveCookie(cookie,seed){const iv=crypto.getRandomValues(new Uint8Array(12));const encrypted=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},await this.key(),enc.encode(cookie)));this.set('session',JSON.stringify({seed,iv:Array.from(iv),value:Array.from(encrypted)}));}

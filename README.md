@@ -54,12 +54,14 @@ on your iPhone or computer. No shell, Python installation or local helper is req
    the imported account session, encrypts cookies and closes the temporary browser.
    An incomplete or rejected login never reports success. You can cancel the window.
 
-The same Worker's `BROWSER` binding starts a guarded session limited to Doctolib domains
-and shared CDNs. No browser session recording is requested. Neither passwords nor cookies
-are sent through ChatGPT tools. The temporary browser idles out after ten minutes;
+The same Worker's `BROWSER` binding starts a guarded session limited to Doctolib domains,
+including the login assets on `assets.doctolib.fr`, and shared CDNs. No browser session recording is requested. Neither passwords nor cookies
+are sent through ChatGPT tools. The temporary browser idles out after three minutes;
 the server rejects and cleans up the handoff after twenty minutes. Live View links are
 short-lived credentials and must not be published or logged. Reopening the handoff renews
-the link to the same browser. Authenticated MCP errors return the public `reconnect_url`
+the link to the same browser. Pending handoffs are restored after a mobile tab reload;
+status exposes only safe stages/error codes. Cookie import uses the installed SDK's
+URL-scoped `Page.cookies()` API. Authenticated MCP errors return the public `reconnect_url`
 and explain this flow instead of referring users to ChatGPT plugin settings.
 
 This is session renewal, not a Doctolib OAuth/refresh-token grant. Doctolib can still expire
