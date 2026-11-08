@@ -28,6 +28,12 @@ monitoring for a **specific doctor or practice**. Derived from
   challenge stops the request. These changes can cause an internal endpoint to reject
   automated use; no live compatibility is claimed.
 
+## Remote access via ChangePoint.eu
+
+The authenticated Worker gateway and Python HTTP backend are prepared in this branch.
+See [ChangePoint setup](docs/CHANGEPOINT-SETUP.md) for the separate MCP/backend tokens,
+persistent browser hosting, and exact deployment gates. No remote deployment is claimed.
+
 ## Run locally
 
 Python 3.12+ and a local browser-capable machine are required. A GitHub Actions runner

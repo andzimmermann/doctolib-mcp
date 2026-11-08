@@ -1,0 +1,35 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "doctolib-mcp-changepoint",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-08",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "DEPLOYMENT_OWNER": "changepoint.eu",
+    "PUBLIC_ORIGIN": "",
+    "BACKEND_URL": "",
+    "BACKEND_HOST": ""
+  },
+  "secrets": {
+    "required": [
+      "MCP_TOKEN_SHA256",
+      "BACKEND_TOKEN"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.01
+    },
+    "redact_query_string": true
+  },
+  "compatibility_flags": [
+    "global_fetch_strictly_public"
+  ]
+}

@@ -1,0 +1,21 @@
+[Unit]
+Description=ChangePoint personal appointment monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=doctolib
+Group=doctolib
+WorkingDirectory=/srv/doctolib-mcp
+Environment=PYTHONPATH=/srv/doctolib-mcp/src
+Environment=DOCTOLIB_AUTO_LOGIN=0
+ExecStart=/srv/doctolib-mcp/.venv/bin/python -m doctolib_mcp.cli watch
+Restart=on-failure
+RestartSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

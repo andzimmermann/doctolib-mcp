@@ -27,3 +27,21 @@ assistant identification may be rejected; do not bypass anti-automation challeng
 
 A booking dispatched by an active auto_book instruction can reserve a real appointment.
 Stopping a monitor cannot reverse it; booking and cancellation are separate actions.
+
+## ChangePoint deployment preparation
+
+Prepared a Bearer-authenticated Worker gateway and independently authenticated Python
+HTTP backend, plus private credential generation and example service units. The MCP
+client token and backend token were generated into ignored, owner-only `.secrets/` files.
+No credential values were printed or committed. Worker config deliberately has no
+account ID and blank endpoint settings until the ChangePoint account/backend are selected.
+
+142 Python tests passed, including actual HTTP MCP initialize and all 15 tools, with
+no live Doctolib calls. Seven workerd gateway tests passed: authentication, header/cookie
+isolation, setup ownership, Origin rejection, body limits, no redirects and no write retry.
+Wrangler dry-run build passed; this is not a deployment.
+
+Cloudflare account enumeration returned only `mysupply.ai account`
+(`833dd808aa2112d0b1618215253f1795`). It was not used for any Doctolib mutation.
+No ChangePoint account, persistent browser host or remote endpoint is confirmed yet.
+No remote services, login or monitor have been started. The GitHub fork remains absent.
