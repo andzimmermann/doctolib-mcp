@@ -46,9 +46,9 @@ add stealth, fake browser identities, challenge bypasses or blind retries in res
   deployment is recorded in IMPLEMENTATION.md.
 - Cron was configured and confirmed by Cloudflare. No job means no medical API work.
 
-The GitHub fork retry still returns HTTP 403 Resource not accessible by integration.
-The connected user must create the fork before the prepared commits can be uploaded there.
-No GitHub Actions run is claimed. Source/history are available in the local archive/bundle.
+The owner created https://github.com/andzimmermann/doctolib-mcp and the connected identity
+now has push access. Prepared changes are published on the personal feature branch for review.
+Local acceptance evidence is independent from the GitHub Actions result.
 
 ## Final acceptance
 

@@ -1,3 +1,7 @@
+> Publication update: the owner has created the personal fork at
+> https://github.com/andzimmermann/doctolib-mcp. Push permission is now confirmed.
+> Earlier HTTP 403 fork-creation entries below are historical.
+
 # Current deployment — single direct-API Worker
 
 Updated 2026-11-08. The external Python backend and Browser Run proposals below are

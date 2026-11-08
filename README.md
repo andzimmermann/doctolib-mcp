@@ -98,8 +98,8 @@ The Worker suite executes in workerd with actual MCP transport/SQLite and simula
 Doctolib responses. It verifies exact family-member selection, uncertainty after commit,
 persistence across restart, monitor stop-after-booking, authentication, session import,
 no credential leakage and denial handling. Python reference tests block real network I/O.
-GitHub-hosted test workflows are included; no self-hosted runner is required. The fork is
-still blocked by the connected GitHub app's HTTP 403 on fork creation.
+GitHub-hosted test workflows are included; no self-hosted runner is required.
+The personal fork is https://github.com/andzimmermann/doctolib-mcp.
 
 Deploy only to account `e663440b575a5919d90eac9d7ce69f58` (ChangePoint), using the explicit
 config in `cloudflare/wrangler.jsonc`. Worker Secrets: `MCP_TOKEN_SHA256` (client token
