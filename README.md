@@ -129,3 +129,15 @@ credentials, body or browser challenge is returned by that probe.
 See [ChangePoint setup and evidence](docs/CHANGEPOINT-SETUP.md). Secret/state/profile files
 are ignored and excluded from source archives. The upstream supplied no license; attribution
 and history are preserved. This fork does not invent a license for unrelated distribution.
+
+
+Mobile login repair: the Doctolib login page depends on JavaScript/CSS served from
+`assets.doctolib.fr`; this host is explicitly allowed. Cookie export uses the installed
+Cloudflare SDK's supported `Page.cookies(fixedAccountUrl)` method. The page restores a
+pending handoff after reload and shows the upstream Retry-After deadline rather than
+sending more browser acquisitions during a limit. Status exposes only safe error stages,
+redacted pre-navigation service errors and numeric limits, never cookies or Live View links.
+Thirty local tests pass, including policy replacement and persistent Retry-After behavior.
+The live blank-page cause was confirmed through resource hostnames and an empty login DOM;
+post-fix browser acquisition is currently blocked by an upstream HTTP 429 until the service
+Retry-After deadline. Actual rendered-login and authenticated import acceptance remain open.
