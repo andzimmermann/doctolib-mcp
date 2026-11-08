@@ -1,108 +1,112 @@
-# Personal Doctolib MCP
+# Personal Doctolib MCP — one Cloudflare Worker
 
-Personal appointment search, family-member selection, booking, cancellation and persistent
-monitoring for a **specific doctor or practice**. Derived from
-[esinecan/doctolib-mcp](https://github.com/esinecan/doctolib-mcp), upstream commit
-`3ee910d`. This is an unofficial integration with Doctolib's internal web endpoints.
+A direct API MCP in the **ChangePoint.eu Cloudflare account**. One deployed Worker handles
+MCP requests and its own five-minute Cron schedule. An exported SQLite Durable Object in
+that same Worker stores private jobs, serializes the personal account and records booking
+outcomes. No separate backend server or permanently running browser service is used.
 
-## What changed
+Endpoint: `https://doctolib-mcp-changepoint.changepoint-eu.workers.dev/mcp`
 
-- All original capabilities remain: search, profiles, availability, appointment list,
-  browser login status, booking, cancellation and draft cleanup.
-- `list_patients` returns stable patient UUIDs so each instruction selects the intended
-  account holder, spouse, child or other linked person. Monitor jobs never infer a person
-  from a partial name or fall back to the account holder.
-- Persistent monitoring is scoped to an exact profile, practice, calendar, visit motive,
-  patient, date range, local start-time window, weekdays and new/existing-patient status.
-  Automatic booking requires explicit `auto_book=true` in that standing instruction.
-- Monitoring checks at most once per five minutes per job, stops after success, and pauses
-  on expired login, changed criteria, failures or uncertain booking outcomes. It never
-  blindly retries a booking, including after a process restart.
-- Account search fails closed if login expires. Cookies are scoped to the Doctolib host,
-  never sent to the external Nominatim geocoder and never accepted as MCP tool arguments.
-- Failed availability checks are reported as failures, not as an absence of appointments.
-  Partial searches are marked. Dictionary-shaped slots sort by their start timestamp.
-- A successful booking is not reported as failed merely because the subsequent
-  confirmation fetch fails. An interrupted commit is explicitly unknown.
-- Honest assistant identification; no browser impersonation or stealth flags. An access
-  challenge stops the request. These changes can cause an internal endpoint to reject
-  automated use; no live compatibility is claimed.
+The API paths and booking funnel were adapted from
+[esinecan/doctolib-mcp](https://github.com/esinecan/doctolib-mcp), upstream `3ee910d`.
+The Python implementation remains a tested reference. The production runtime is in
+`cloudflare/`: `worker.mjs`, `direct-mcp.mjs`, `direct-api.mjs`, `direct-state.mjs`.
 
-## Remote access via ChangePoint.eu
+## What works and what is still required
 
-The authenticated Worker gateway and Python HTTP backend are prepared in this branch.
-See [ChangePoint setup](docs/CHANGEPOINT-SETUP.md) for the separate MCP/backend tokens,
-persistent browser hosting, and exact deployment gates. No remote deployment is claimed.
+A live unauthenticated search sent **from the ChangePoint Worker to Doctolib** returned
+HTTP 206 with the expected search schema. Live MCP initialize, all 15 tools, empty job
+storage and rejection of unauthenticated clients were checked. Personal account APIs,
+booking and cancellation still require a real, valid Doctolib session and live acceptance.
+No real medical appointment has been booked or cancelled and no live job is configured.
+General writes remain disabled during account setup.
 
-## Run locally
+Doctolib's internal web APIs use session cookies and CSRF state, not a publicly documented
+personal API key or OAuth connector. The Worker uses a valid account session directly.
+It does not invent an OAuth flow, send your password to a custom form, impersonate a
+browser or bypass access challenges. If access is denied or the session expires, it stops.
+Direct anonymous search success does not establish authenticated booking compatibility.
 
-Python 3.12+ and a local browser-capable machine are required. A GitHub Actions runner
-runs tests; it is **not** the always-on appointment monitor. A plain Cloudflare Worker
-cannot run this persistent local browser profile.
+## MCP tools
+
+- `list_specialties`, `search_doctors`, `get_practitioner`, `get_availabilities`,
+  `find_earliest_appointment`, `booking_url`.
+- `my_appointments`, `session_status`, `list_patients`.
+- `book_appointment`, `cancel_appointment`, `abort_booking_draft`.
+- `create_appointment_monitor`, `list_appointment_monitors`, `stop_appointment_monitor`.
+
+The MCP is protected by a personal Bearer token. The same token grants all exposed tools
+for this one personal Doctolib account; it is not a shared multi-user service. Session
+cookies are not accepted as model-facing tool arguments or returned to the model.
+
+## Connect your Doctolib account
+
+Use the normal Doctolib website login with password and possible 2FA. The optional helper
+opens a **temporary visible browser for that login only**, validates the session, transfers
+only Doctolib cookies over HTTPS to the authenticated ChangePoint Worker and removes its
+local temporary profile. The Worker validates the session again and encrypts it at rest.
+There is no permanently running local process or external hosting requirement.
+
+On your own machine, in this source checkout:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python -m pip install 'playwright>=1.44'
+.venv/bin/python -m pip install playwright
 .venv/bin/python -m playwright install chromium
-PYTHONPATH=src .venv/bin/python -m doctolib_mcp.cli login --country de
-PYTHONPATH=src .venv/bin/python -m doctolib_mcp.mcp_server
+.venv/bin/python scripts/connect-doctolib.py
 ```
 
-The MCP uses stdio. Configure your MCP client with the absolute venv Python executable,
-arguments `-m doctolib_mcp.mcp_server`, `PYTHONPATH` set to this checkout's `src` directory,
-and `DOCTOLIB_AUTO_LOGIN=0` for unattended use. Complete login/2FA in the browser yourself.
-No password, cookie or token belongs in a chat or repository.
+Enter the MCP token in the hidden terminal prompt; enter your Doctolib password/2FA only
+in Doctolib's own browser page. No passwords or tokens belong in chat. The helper does
+not follow upload redirects or print cookies/tokens. Session expiration requires a fresh
+login; no refresh-token capability is claimed. A private `DOCTOLIB_COOKIE` Worker Secret
+is also supported for owner-managed imports, but the validated connector is preferred.
 
-## A standing automatic-booking instruction
+## Create an exact standing instruction
 
-1. Use `list_patients` and select the exact person's `patient_id` (UUID).
-2. Use `get_practitioner` to inspect the chosen practice's profile, available visit motives,
-   calendars and location IDs. Choose a calendar belonging to that exact practice/motive.
-3. Use `list_appointment_monitors` to avoid creating duplicate jobs.
-4. Create one `create_appointment_monitor` with the exact IDs and desired dates, weekdays,
-   timezone, local start-time window, insurance sector and `new_patient` status.
-   `auto_book=false` finds and stops; `auto_book=true` is the user's standing authorization
-   to immediately book the first matching slot for this exact person and target.
-5. Keep the scheduler running on the same machine/check-out as the MCP and browser profile:
+Use `list_patients` to choose the account holder, spouse, child or other linked person by
+stable `patient_id`. Use `get_practitioner` to choose the exact doctor/practice, calendar,
+location and visit motive. The monitor binds those IDs to an inclusive date range (maximum
+90 days), local start-time window, timezone, weekdays and new/existing-patient status.
 
-```sh
-PYTHONPATH=src DOCTOLIB_AUTO_LOGIN=0 .venv/bin/python -m doctolib_mcp.cli watch
-```
+`auto_book=false` finds and stops. `auto_book=true` is standing user authorization to book
+a matching slot for **that exact person and target** without another prompt. It requires
+server writes to be enabled after account setup. The same Worker checks due jobs every
+five minutes, stops after successful booking and pauses on expired login, changed target,
+errors or an uncertain booking. Empty schedules make no Doctolib calls.
 
-Use a service manager for unattended operation/restarts. The process must be running and
-have network access; creating a job in chat alone does not start background monitoring.
-Jobs persist in `.state/monitors.sqlite3`. `active` means eligible for checking, not proof
-that a watcher is running. The scheduler reads due jobs every 30 seconds and honors each
-job's interval (minimum 300 seconds). It is deliberately modest polling, not a guarantee
-of winning a slot against other patients.
+`booking` or `needs_review` statuses require checking the account before any replacement
+instruction. Pending or unknown writes survive runtime restart and are never automatically
+repeated. A duplicate target/person job cannot dispatch a second booking. Stopping monitoring
+never retracts an in-flight booking or cancels an appointment. Manual booking/cancellation
+preview by default; `confirm=true` requires the user's specific instruction.
 
-`list_appointment_monitors` reports `found`, `booked`, `expired`, `needs_review` or
-`booking`. A `booking` job surviving a crash and any `needs_review` result require checking
-the Doctolib account before creating another booking instruction. No notification channel
-is configured; the watcher prints job ID/status and the MCP lists stored results.
+The broad earliest-appointment tool only checks a bounded first page, not every doctor.
+Practice-specific monitoring uses the chosen calendar directly. No notifications channel
+is configured; results are stored and available through MCP.
 
-`stop_appointment_monitor` stops future checks, not an already dispatched booking or an
-existing appointment. Existing appointments are never automatically cancelled/replaced.
-Manual booking and cancellation retain their `confirm=false` preview; use `confirm=true`
-only for the user's explicit specific instruction. The draft-release tool remains.
-
-## Tests and limits
+## Verify and deploy
 
 ```sh
+npm ci --ignore-scripts
+npm run types:worker
+npm run test:worker
 PYTHONPATH=src .venv/bin/python -m pytest -q
 ```
 
-Tests use simulated HTTP/browser responses and block real connections. They cover patient
-selection, date/time limits, persistent deduplication and restart behavior, uncertain
-writes, cookie scope, login failure and search errors. A GitHub-hosted test workflow is
-included; no self-hosted runner is needed.
+The Worker suite executes in workerd with actual MCP transport/SQLite and simulated
+Doctolib responses. It verifies exact family-member selection, uncertainty after commit,
+persistence across restart, monitor stop-after-booking, authentication, session import,
+no credential leakage and denial handling. Python reference tests block real network I/O.
+GitHub-hosted test workflows are included; no self-hosted runner is required. The fork is
+still blocked by the connected GitHub app's HTTP 403 on fork creation.
 
-No live account was connected and no appointment was booked or cancelled during development.
-End-to-end live booking remains unverified. The internal API may change or block automated
-access. Search is not exhaustive: the broad earliest-appointment tool examines a bounded
-first page; practice-specific monitoring uses the selected calendar directly.
+Deploy only to account `e663440b575a5919d90eac9d7ce69f58` (ChangePoint), using the explicit
+config in `cloudflare/wrangler.jsonc`. Worker Secrets: `MCP_TOKEN_SHA256` (client token
+verifier), `SESSION_KEY` (session encryption key). `ENABLE_WRITES=false` is the setup default.
+The direct API probe is owner-authenticated at `POST /setup/check-api`. No medical data,
+credentials, body or browser challenge is returned by that probe.
 
-The upstream repository supplies **no license**. Its attribution/history is retained;
-this fork does not invent a license or claim general redistribution rights. Check licensing
-before distributing a separate package or offering it as a service.
+See [ChangePoint setup and evidence](docs/CHANGEPOINT-SETUP.md). Secret/state/profile files
+are ignored and excluded from source archives. The upstream supplied no license; attribution
+and history are preserved. This fork does not invent a license for unrelated distribution.

@@ -4,9 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:worker": "node --test test-worker/*.test.mjs",
+    "test:worker": "npm run build:worker && node --test test-worker/*.test.mjs",
     "types:worker": "wrangler types --config cloudflare/wrangler.jsonc",
     "build:worker": "wrangler deploy --config cloudflare/wrangler.jsonc --dry-run --outdir dist-worker"
   },
-  "devDependencies": {"miniflare": "5.20261104.0-beta", "wrangler": "4.158.0"}
+  "devDependencies": {
+    "miniflare": "5.20261104.0-beta",
+    "wrangler": "4.158.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.6.7"
+  }
 }

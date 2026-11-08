@@ -1,3 +1,31 @@
+# Current deployment — single direct-API Worker
+
+Updated 2026-11-08. The external Python backend and Browser Run proposals below are
+historical and superseded. Current endpoint:
+`https://doctolib-mcp-changepoint.changepoint-eu.workers.dev/mcp`.
+
+- ChangePoint account: `e663440b575a5919d90eac9d7ce69f58`.
+- Final deployment: `734fc00e1b52424bbabbbb02c0b9afb0`; migration `direct-v1`.
+- Bundle SHA-256: `c3745a149b414206c960b980ac1dd24afff4fade010e309ab76570c2597ef422`.
+- One Worker, 15 MCP tools, same-Worker Cron every five minutes and SQLite state class.
+- Direct anonymous Doctolib API search from Worker: HTTP 206, schema recognized.
+- Live initialize and tools/list: HTTP 200; 15 tools; wrong/missing bearer denied.
+- Live state: no monitor jobs. Account session required; general writes disabled.
+- Session import endpoint rejects invalid payloads; actual personal login remains pending.
+- 14 workerd tests and 137 Python reference tests passed. Browser login helper compiles.
+- Runtime tests cover exact linked-person selection, checkout identity checks, preflight
+  failures, uncertain commit, stop-after-success, duplicate suppression and restart,
+  credential isolation and validated encrypted session import. They use mocked Doctolib.
+- No real patient records read or medical bookings/cancellations made. No active job.
+- `MCP_TOKEN_SHA256` and `SESSION_KEY` are provisioned. An attempted cleanup of the unused
+  legacy `BACKEND_TOKEN` was rejected by automatic approval review for lack of explicit
+  authorization to delete that exact secret. It remains stored, is not used by the current
+  code, and was not removed through another route. No approval is needed to keep it unused.
+- GitHub fork creation remains HTTP 403 for the connected integration; no PR or CI run
+  is claimed. Source/history are packaged locally, without secrets, session or state.
+
+## Historical implementation evidence
+
 # Implementation evidence — 2026-11-08
 
 Upstream: esinecan/doctolib-mcp at 3ee910d. All original tool capabilities retained.

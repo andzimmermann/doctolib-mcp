@@ -1,55 +1,58 @@
-const MAX_BODY = 524288;
-const enc = new TextEncoder();
-const json = (status, error) => Response.json({error}, {status, headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
-function config(env) {
-  if (env.DEPLOYMENT_OWNER !== 'changepoint.eu' || !/^[a-f0-9]{64}$/.test(env.MCP_TOKEN_SHA256 || '') || !env.BACKEND_TOKEN || env.BACKEND_TOKEN.length < 40) return null;
+import {directMcp} from './direct-mcp.mjs';
+import {bounded} from './direct-api.mjs';
+export {DoctolibAccount} from './direct-state.mjs';
+const enc=new TextEncoder();
+const json=(status,error)=>Response.json({error},{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});
+async function authorize(request,env){
+ if(env.DEPLOYMENT_OWNER!=='changepoint.eu'||!/^[a-f0-9]{64}$/.test(env.MCP_TOKEN_SHA256||''))return json(503,'SETUP_REQUIRED');
+ if(new URL(request.url).origin!==env.PUBLIC_ORIGIN)return json(421,'WRONG_ORIGIN');
+ const origin=request.headers.get('origin');if(origin&&origin!==env.PUBLIC_ORIGIN)return json(403,'ORIGIN_DENIED');
+ const match=/^Bearer ([A-Za-z0-9_-]{40,128})$/.exec(request.headers.get('authorization')||'');if(!match)return json(401,'UNAUTHORIZED');
+ const digest=await crypto.subtle.digest('SHA-256',enc.encode(match[1]));
+ const expected=Uint8Array.from(env.MCP_TOKEN_SHA256.match(/../g),x=>parseInt(x,16));
+ if(!crypto.subtle.timingSafeEqual(digest,expected))return json(401,'UNAUTHORIZED');
+ return null;
+}
+async function directApiCheck(request, env) {
+  // Fixed read-only search; no arbitrary URL, cookies, account records or credentials.
+  if (request.method !== 'POST') return json(405,'METHOD_NOT_ALLOWED');
+  if (env.DEPLOYMENT_OWNER !== 'changepoint.eu' || !/^[a-f0-9]{64}$/.test(env.MCP_TOKEN_SHA256 || '')) return json(503,'SETUP_REQUIRED');
+  if (new URL(request.url).origin !== env.PUBLIC_ORIGIN) return json(421,'WRONG_ORIGIN');
+  const origin = request.headers.get('origin');
+  if (origin && origin !== env.PUBLIC_ORIGIN) return json(403,'ORIGIN_DENIED');
+  const match = /^Bearer ([A-Za-z0-9_-]{40,128})$/.exec(request.headers.get('authorization') || '');
+  if (!match) return json(401,'UNAUTHORIZED');
+  const digest = await crypto.subtle.digest('SHA-256',enc.encode(match[1]));
+  const expected = Uint8Array.from(env.MCP_TOKEN_SHA256.match(/../g),x=>parseInt(x,16));
+  if (!crypto.subtle.timingSafeEqual(digest,expected)) return json(401,'UNAUTHORIZED');
+  const endpoint='https://www.doctolib.de/patient-health-search/api/v1/hcp/search?page=0';
+  const payload={keyword:'allgemeinmedizin',location:{place:{name:'Berlin',slug:'berlin',country:'de',type:'locality',viewport:{northeast:{lat:52.68,lng:13.76},southwest:{lat:52.35,lng:13.09}},gpsPoint:{lat:52.517,lng:13.3889}}},filters:{}};
   try {
-    const backend = new URL(env.BACKEND_URL);
-    const publicOrigin = new URL(env.PUBLIC_ORIGIN);
-    if (backend.protocol !== 'https:' || backend.username || backend.password || backend.pathname !== '/mcp' || backend.search || backend.hash) return null;
-    if (publicOrigin.protocol !== 'https:' || publicOrigin.origin !== env.PUBLIC_ORIGIN || backend.origin === publicOrigin.origin) return null;
-    if (backend.hostname !== env.BACKEND_HOST || backend.hostname.endsWith('.local') || !backend.hostname.includes('.') || /^[\d.:]+$/.test(backend.hostname)) return null;
-    return {backend, publicOrigin};
-  } catch {return null;}
+    const response=await fetch(endpoint,{method:'POST',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{'content-type':'application/json',accept:'application/json','user-agent':'changepoint-doctolib-mcp/0.2 (personal appointment assistant)'},body:JSON.stringify(payload)});
+    const type=response.headers.get('content-type') || '';
+    if (![200,206].includes(response.status)) {
+      await response.body?.cancel();
+      return Response.json({direct_api:false,authenticated:false,upstream_status:response.status,content_type:type,reason:response.status===403?'ACCESS_DENIED':response.status===429?'RATE_LIMITED':'UPSTREAM_REJECTED',retried:false},{headers:{'cache-control':'no-store'}});
+    }
+    // Only report schema recognition; never return profiles, patient data or raw bodies.
+    const reader=response.body?.getReader();let total=0;const parts=[];
+    if(reader) for(;;){const {value,done}=await reader.read();if(done)break;total+=value.byteLength;if(total>2*1024*1024){await reader.cancel();throw new Error('bounded response exceeded');}parts.push(value);}
+    const data=new Uint8Array(total);let offset=0;for(const part of parts){data.set(part,offset);offset+=part.length;}
+    let parsed;try{parsed=JSON.parse(new TextDecoder().decode(data));}catch{return Response.json({direct_api:false,authenticated:false,upstream_status:response.status,reason:'NON_JSON_RESPONSE'},{headers:{'cache-control':'no-store'}});}
+    return Response.json({direct_api:Array.isArray(parsed.healthcareProviders),authenticated:false,upstream_status:response.status,search_schema_recognized:Array.isArray(parsed.healthcareProviders),retried:false},{headers:{'cache-control':'no-store'}});
+  } catch {return json(502,'DIRECT_API_CHECK_FAILED');}
 }
 export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    if (url.pathname === '/health' && request.method === 'GET') return Response.json({service:'doctolib-mcp-gateway',owner:'changepoint.eu',configured:!!config(env)}, {status:config(env)?200:503,headers:{'cache-control':'no-store'}});
-    if (url.pathname !== '/mcp' || url.search) return json(404,'NOT_FOUND');
-    if (!['GET','POST','DELETE'].includes(request.method)) return json(405,'METHOD_NOT_ALLOWED');
-    const cfg = config(env);
-    if (!cfg) return json(503,'SETUP_REQUIRED');
-    if (url.origin !== cfg.publicOrigin.origin) return json(421,'WRONG_ORIGIN');
-    const auth = /^Bearer ([A-Za-z0-9_-]{40,128})$/.exec(request.headers.get('authorization') || '');
-    if (!auth) return json(401,'UNAUTHORIZED');
-    const digest = await crypto.subtle.digest('SHA-256', enc.encode(auth[1]));
-    const expected = Uint8Array.from(env.MCP_TOKEN_SHA256.match(/../g), x=>parseInt(x,16));
-    if (!crypto.subtle.timingSafeEqual(digest, expected)) return json(401,'UNAUTHORIZED');
-    const origin = request.headers.get('origin');
-    if (origin && origin !== cfg.publicOrigin.origin) return json(403,'ORIGIN_DENIED');
-    const headers = new Headers({authorization:'Bearer '+env.BACKEND_TOKEN,accept:request.headers.get('accept') || 'application/json, text/event-stream'});
-    for (const name of ['content-type','mcp-protocol-version','mcp-session-id','last-event-id']) {
-      const value = request.headers.get(name); if(value) headers.set(name,value);
-    }
-    let body;
-    if (request.body) {
-      const size = Number(request.headers.get('content-length'));
-      if (size > MAX_BODY) return json(413,'BODY_TOO_LARGE');
-      const reader = request.body.getReader(); const chunks=[]; let total=0;
-      for (;;) {const {value,done}=await reader.read();if(done)break;total+=value.byteLength;if(total>MAX_BODY){await reader.cancel();return json(413,'BODY_TOO_LARGE');}chunks.push(value);}
-      body = new Uint8Array(total); let offset=0;for(const c of chunks){body.set(c,offset);offset+=c.length;}
-    }
-    try {
-      const upstream = await fetch(cfg.backend.href,{method:request.method,headers,body,redirect:'manual',signal:AbortSignal.timeout(90000)});
-      // Never follow redirects or repeat a failed request: it could already have booked.
-      if(upstream.status>=300&&upstream.status<400){await upstream.body?.cancel();return json(502,'BACKEND_REDIRECT_REJECTED_OUTCOME_UNKNOWN');}
-      if(upstream.status>=500){await upstream.body?.cancel();return json(502,'BACKEND_FAILED_OUTCOME_UNKNOWN');}
-      const responseHeaders = new Headers({'cache-control':'no-store','x-content-type-options':'nosniff'});
-      for(const name of ['content-type','mcp-session-id','mcp-protocol-version','retry-after']){
-        const value=upstream.headers.get(name);if(value)responseHeaders.set(name,value);
-      }
-      return new Response(upstream.body,{status:upstream.status,headers:responseHeaders});
-    } catch {return json(502,'BACKEND_UNREACHABLE_OUTCOME_UNKNOWN');}
-  }
+ async scheduled(event,env){if(env.ACCOUNT_STATE)await env.ACCOUNT_STATE.getByName('personal-de').tick();},
+ async fetch(request,env){
+  const url=new URL(request.url);
+  if(url.pathname==='/health'&&request.method==='GET')return Response.json({service:'doctolib-mcp',owner:'changepoint.eu',direct_api:true,storage_configured:!!env.ACCOUNT_STATE,session_secret_configured:!!env.DOCTOLIB_COOKIE,writes_enabled:env.ENABLE_WRITES==='true'},{headers:{'cache-control':'no-store'}});
+  if(url.search||!['/mcp','/setup/check-api','/setup/session'].includes(url.pathname))return json(404,'NOT_FOUND');
+  if(request.method!=='POST')return json(405,'POST_REQUIRED');
+  const denied=await authorize(request,env);if(denied)return denied;
+  if(url.pathname==='/setup/check-api')return directApiCheck(request,env);
+  if(!env.ACCOUNT_STATE)return json(503,'STORAGE_SETUP_REQUIRED');
+  if(url.pathname==='/setup/session'){try{const data=JSON.parse(await bounded(new Response(request.body),20000));if(Object.keys(data).length!==1||typeof data.cookie!=='string')return json(400,'SESSION_FORMAT_INVALID');const result=await env.ACCOUNT_STATE.getByName('personal-de').importSession(data.cookie);return Response.json(result,{status:result.ok?200:400,headers:{'cache-control':'no-store'}});}catch{return json(400,'SESSION_IMPORT_FAILED');}}
+  try{return await directMcp(request,env);}catch{return json(400,'INVALID_MCP_REQUEST');}
+ }
 };
