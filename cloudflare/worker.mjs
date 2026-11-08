@@ -48,7 +48,9 @@ export default {
  async scheduled(event,env){if(env.ACCOUNT_STATE)await env.ACCOUNT_STATE.getByName('personal-de').tick();},
  async fetch(request,env){
   const url=new URL(request.url);
-  if((url.pathname==='/connect'||url.pathname==='/connect.js')&&!url.search&&request.method==='GET')return connectAsset(url.pathname.endsWith('.js'));
+  // Public entry pages accept the root URL, a trailing slash and link-tracking queries.
+  // Authenticated connect actions below still require their exact path/origin/body.
+  if(request.method==='GET'&&['/','/connect','/connect/','/connect.js'].includes(url.pathname))return connectAsset(url.pathname==='/connect.js');
   if(url.pathname.startsWith('/connect/')){
    if(env.DEPLOYMENT_OWNER!=='changepoint.eu'||url.origin!==env.PUBLIC_ORIGIN)return json(503,'SETUP_REQUIRED');
    if(url.search||!env.ACCOUNT_STATE)return json(400,'INVALID_CONNECT_REQUEST');
