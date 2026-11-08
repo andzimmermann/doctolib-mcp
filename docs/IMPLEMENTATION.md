@@ -1,6 +1,8 @@
 > Publication update: the owner has created the personal fork at
-> https://github.com/andzimmermann/doctolib-mcp. Push permission is now confirmed.
-> Earlier HTTP 403 fork-creation entries below are historical.
+> https://github.com/andzimmermann/doctolib-mcp. The owner has push permission, but
+> app writes still fail with HTTP 403. Accessible app installations list only mysupply-ai;
+> personal-account authorization is missing. No branch or PR has been published.
+> Earlier fork-creation failures below are historical.
 
 # Current deployment — single direct-API Worker
 
