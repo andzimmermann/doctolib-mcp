@@ -48,21 +48,30 @@ on your iPhone or computer. No shell, Python installation or local helper is req
 1. Unlock the connection page with your personal MCP token. A Secure, HttpOnly,
    SameSite=Strict setup cookie remembers that browser for up to 30 days. Rotating the
    MCP credential invalidates it; it never grants MCP/account-read access.
-2. Prepare the login window and select **Doctolib öffnen**. This opens a temporary
-   Cloudflare Live View in another tab. Sign into Doctolib there, including any 2FA.
-3. Return to the connection page and select **Sitzung übernehmen**. The Worker verifies
-   the imported account session, encrypts cookies and closes the temporary browser.
+2. Prepare the login window and select **Doctolib hier öffnen**. The same page displays
+   the remote Doctolib login screen. Tap a field in the image, then type into the native
+   input underneath it. This works with the iPhone keyboard and masks password fields.
+   **Eingabe und weiter** transfers the value and presses Enter in the Doctolib form.
+   You can click buttons in the image, refresh it or scroll the remote page.
+3. Select **Sitzung übernehmen** after completing login/2FA. The Worker verifies the
+   imported account session, encrypts cookies and closes the temporary browser.
    An incomplete or rejected login never reports success. You can cancel the window.
 
 The same Worker's `BROWSER` binding starts a guarded session limited to Doctolib domains,
-including the login assets on `assets.doctolib.fr`, and shared CDNs. No browser session recording is requested. Neither passwords nor cookies
-are sent through ChatGPT tools. The temporary browser idles out after three minutes;
-the server rejects and cleans up the handoff after twenty minutes. Live View links are
-short-lived credentials and must not be published or logged. Reopening the handoff renews
-the link to the same browser. Pending handoffs are restored after a mobile tab reload;
-status exposes only safe stages/error codes. Cookie import uses the installed SDK's
-URL-scoped `Page.cookies()` API. Authenticated MCP errors return the public `reconnect_url`
-and explain this flow instead of referring users to ChatGPT plugin settings.
+including the login assets on `assets.doctolib.fr`, and shared CDNs. No browser recording
+is requested. Native text input is sent over authenticated same-origin HTTPS directly
+to the selected Doctolib field through the remote browser. It is transient: the Worker
+does not write text or screenshots into storage/logs and never exposes them as MCP
+arguments/results. The native input is cleared on submission. Actions reject arbitrary
+URLs/scripts and cannot type or click outside authentication pages. Only exact existing
+handoff IDs are accepted, with serialized interaction and immediate disconnect afterward.
+
+The alternative Cloudflare Live View remains available for desktop users. Its signed
+links are short-lived credentials and must not be published or logged. The temporary
+browser idles out after three minutes; the server rejects and cleans up the handoff
+after twenty minutes. Pending handoffs are restored after mobile tab reload. Import
+uses the installed SDK's URL-scoped `Page.cookies()` API. Authenticated MCP errors return
+the public `reconnect_url` instead of referring users to ChatGPT plugin settings.
 
 This is session renewal, not a Doctolib OAuth/refresh-token grant. Doctolib can still expire
 or revoke the session; no unlimited login lifetime is claimed. The existing

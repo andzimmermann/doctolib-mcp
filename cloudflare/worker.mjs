@@ -1,5 +1,6 @@
 import {connectAsset} from './connect-page.mjs';
 import {connectCookie,hasConnectCookie} from './connect-auth.mjs';
+import {parseInteraction} from './login-input.mjs';
 import {directMcp} from './direct-mcp.mjs';
 import {bounded} from './direct-api.mjs';
 export {DoctolibAccount} from './direct-state.mjs';
@@ -55,7 +56,7 @@ export default {
    if(env.DEPLOYMENT_OWNER!=='changepoint.eu'||url.origin!==env.PUBLIC_ORIGIN)return json(503,'SETUP_REQUIRED');
    if(url.search||!env.ACCOUNT_STATE)return json(400,'INVALID_CONNECT_REQUEST');
    const action=url.pathname.slice('/connect/'.length);
-   if(!['unlock','status','start','finish','cancel'].includes(action))return json(404,'NOT_FOUND');
+   if(!['unlock','status','start','finish','cancel','frame','interact'].includes(action))return json(404,'NOT_FOUND');
    if(request.method!==(action==='status'?'GET':'POST'))return json(405,'METHOD_NOT_ALLOWED');
    const origin=request.headers.get('origin');
    if(action!=='status'&&origin!==env.PUBLIC_ORIGIN||origin&&origin!==env.PUBLIC_ORIGIN)return json(403,'ORIGIN_DENIED');
@@ -64,12 +65,12 @@ export default {
     return Response.json({ok:true},{headers:{'set-cookie':await connectCookie(env),'cache-control':'no-store'}});
    }
    if(!await hasConnectCookie(request,env))return json(401,'UNAUTHORIZED');
-   let id;
+   let id,interaction;
    if(action!=='status'){
     if(!request.headers.get('content-type')?.startsWith('application/json'))return json(415,'JSON_REQUIRED');
-    try{const data=JSON.parse(await bounded(new Response(request.body),2048));if(Object.keys(data).some(k=>k!=='login_id')||data.login_id!==undefined&&!/^[a-f0-9-]{36}$/.test(data.login_id))return json(400,'INVALID_CONNECT_REQUEST');id=data.login_id;}catch{return json(400,'INVALID_CONNECT_REQUEST');}
+    try{const data=JSON.parse(await bounded(new Response(request.body),8192));const allowed=action==='interact'?['login_id','interaction']:['login_id'];if(Object.keys(data).some(k=>!allowed.includes(k))||data.login_id!==undefined&&!/^[a-f0-9-]{36}$/.test(data.login_id))return json(400,'INVALID_CONNECT_REQUEST');id=data.login_id;if(action==='interact')interaction=parseInteraction(data.interaction);}catch{return json(400,'INVALID_CONNECT_REQUEST');}
    }
-   try{const result=await env.ACCOUNT_STATE.getByName('personal-de').login(action,id);return Response.json(result,{status:result.ok===false?400:200,headers:{'cache-control':'no-store','referrer-policy':'no-referrer'}});}catch{return json(503,'LOGIN_FAILED');}
+   try{const result=await env.ACCOUNT_STATE.getByName('personal-de').login(action,id,interaction);return Response.json(result,{status:result.ok===false?400:200,headers:{'cache-control':'no-store','referrer-policy':'no-referrer'}});}catch{return json(503,'LOGIN_FAILED');}
   }
   if(url.pathname==='/health'&&request.method==='GET')return Response.json({service:'doctolib-mcp',owner:'changepoint.eu',direct_api:true,storage_configured:!!env.ACCOUNT_STATE,session_secret_configured:!!env.DOCTOLIB_COOKIE,writes_enabled:env.ENABLE_WRITES==='true'},{headers:{'cache-control':'no-store'}});
   if(url.search||!['/mcp','/setup/check-api','/setup/session'].includes(url.pathname))return json(404,'NOT_FOUND');

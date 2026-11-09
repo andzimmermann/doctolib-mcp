@@ -1,5 +1,6 @@
 import puppeteer from '@cloudflare/puppeteer';
 import {ApiError} from './direct-api.mjs';
+import {loginFrame,loginInteraction} from './login-input.mjs';
 
 const lifetime=20*60*1000;
 const policyVersion=2;
@@ -28,7 +29,7 @@ async function view(browser,page){
   return u.href;
  }finally{await cdp.detach();}
 }
-export async function browserLogin(account,action,id,driver=puppeteer){
+export async function browserLogin(account,action,id,driver=puppeteer,interaction){
  let current=state(account);
  if(action==='status'){
   let browser_limits=null;
@@ -36,7 +37,7 @@ export async function browserLogin(account,action,id,driver=puppeteer){
   return {available:!!account.env.BROWSER,pending:!!current&&current.expires_at>Date.now(),login_id:current?.id,expires_at:current?.expires_at,last_result:JSON.parse(account.get('browser_login_result')||'null'),browser_limits,launch_error:account.get('browser_launch_error')||null,retry_at:Number(account.get('browser_retry_at'))||null};
  }
  if(!account.env.BROWSER)throw new ApiError('BROWSER_SETUP_REQUIRED',503);
- if(!['start','finish','cancel','expire'].includes(action))throw new ApiError('LOGIN_ACTION_INVALID');
+ if(!['start','finish','cancel','expire','frame','interact'].includes(action))throw new ApiError('LOGIN_ACTION_INVALID');
  if(action==='start'&&!current&&Number(account.get('browser_retry_at'))>Date.now()){loginCheckpoint(account,action,'rate_limit');throw new ApiError('BROWSER_RATE_LIMIT',429);}
  if(action==='expire'&&(!current||current.expires_at>Date.now()))return {expired:false};
  if(action!=='start'&&action!=='expire'&&(!current||id!==current.id))throw new ApiError('LOGIN_NOT_FOUND',404);
@@ -79,6 +80,11 @@ export async function browserLogin(account,action,id,driver=puppeteer){
   }
   const pages=await browser.pages();const page=pages.find(p=>{try{const u=new URL(p.url());return u.protocol==='https:'&&['doctolib.de','doctolib.com'].some(h=>u.hostname===h||u.hostname.endsWith('.'+h));}catch{return false;}});
   if(!page)throw new ApiError('DOCTOLIB_LOGIN_PAGE_REQUIRED');
+  if(action==='frame'||action==='interact'){
+   await page.setViewport({width:390,height:780,deviceScaleFactor:1});
+   // Input remains transient: neither the payload nor screenshots enter SQL, logs or MCP.
+   return await (action==='frame'?loginFrame(page):loginInteraction(page,interaction));
+  }
   if(action==='finish'){
    loginCheckpoint(account,action,'read_session');
    // This Cloudflare Puppeteer version exposes URL-scoped cookies on Page, not BrowserContext.

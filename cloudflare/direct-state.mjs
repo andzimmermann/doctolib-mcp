@@ -20,11 +20,11 @@ export class DoctolibAccount extends DurableObject {
   try{await (await this.api()).patients();this.set('session_keep_alive',JSON.stringify({...next,last_success:Date.now(),error:null}));}
   catch(e){const paused=[401,403].includes(e.status);this.set('session_keep_alive',JSON.stringify({...next,paused,next_check:paused?null:next.next_check,error:e.code||'SESSION_CHECK_FAILED'}));}
  }
- async login(action,id){
+ async login(action,id,interaction){
   if(action==='status')return browserLogin(this,action,id);
   const lock=JSON.parse(this.get('browser_login_lock')||'null');if(lock&&lock.until>Date.now())return {ok:false,error:'LOGIN_OPERATION_IN_PROGRESS'};
   const owner=crypto.randomUUID();this.set('browser_login_lock',JSON.stringify({owner,until:Date.now()+120000}));await this.ctx.storage.sync();
-  try{return await browserLogin(this,action,id);}catch(e){const error=/^[A-Z_0-9]+$/.test(e.code||'')?e.code:'LOGIN_FAILED';const stage=JSON.parse(this.get('browser_login_result')||'null')?.stage||'request';if(action!=='expire')loginCheckpoint(this,action,stage,error);return {ok:false,error,stage};}finally{const current=JSON.parse(this.get('browser_login_lock')||'null');if(current?.owner===owner)this.ctx.storage.sql.exec('DELETE FROM meta WHERE key=?','browser_login_lock');}
+  try{return await browserLogin(this,action,id,undefined,interaction);}catch(e){const error=/^[A-Z_0-9]+$/.test(e.code||'')?e.code:'LOGIN_FAILED';const stage=JSON.parse(this.get('browser_login_result')||'null')?.stage||'request';if(action!=='expire')loginCheckpoint(this,action,stage,error);return {ok:false,error,stage};}finally{const current=JSON.parse(this.get('browser_login_lock')||'null');if(current?.owner===owner)this.ctx.storage.sql.exec('DELETE FROM meta WHERE key=?','browser_login_lock');}
  }
  async key(){if(!/^[a-f0-9]{64}$/.test(this.env.SESSION_KEY||''))throw new ApiError('SESSION_STORAGE_KEY_REQUIRED',503);return crypto.subtle.importKey('raw',Uint8Array.from(this.env.SESSION_KEY.match(/../g),b=>parseInt(b,16)),'AES-GCM',false,['encrypt','decrypt']);}
  async saveCookie(cookie,seed){const iv=crypto.getRandomValues(new Uint8Array(12));const encrypted=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},await this.key(),enc.encode(cookie)));this.set('session',JSON.stringify({seed,iv:Array.from(iv),value:Array.from(encrypted)}));}
