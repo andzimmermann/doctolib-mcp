@@ -27,8 +27,11 @@ to 30 days. The cookie is bound to the current MCP credential and cannot authori
 requests. Browser actions require exact same-origin POSTs and bounded JSON bodies.
 
 The `BROWSER` binding starts a twenty-minute maximum handoff using `@cloudflare/puppeteer`
-1.4.0 and a Doctolib/CDN guardrail policy. The user enters password/2FA directly into the
-Doctolib page inside Cloudflare's Live View, not into ChatGPT or a custom password form.
+1.4.0 and a Doctolib/CDN guardrail policy. The mobile connection page displays the Doctolib login image and provides a native
+keyboard input. Text is relayed transiently over authenticated same-origin HTTPS into
+the selected Doctolib input, without SQL/log storage or MCP exposure. Password inputs
+are masked and cleared after submission. Click/key actions stay on authentication pages.
+Cloudflare Live View remains an alternative for desktop users.
 No browser recording is enabled. The setup page receives a short-lived Live View link,
 which must be treated as a secret and never logged. It reuses the current browser when
 renewing that link. Completion filters cookies to the exact Doctolib domain/path,
@@ -89,3 +92,16 @@ login/import responses and no horizontal overflow. Live unlock, browser availabi
 Doctolib page navigation and generation of a signed Live View link succeeded. Temporary
 test browsers are closed afterward. An actual patient login/import still requires the
 owner to complete password/2FA; no real booking or cancellation was performed.
+
+
+## Native iPhone keyboard acceptance
+
+The hosted Live View did not reliably open the iPhone keyboard. The same Worker now
+provides private `/connect/frame` and `/connect/interact` endpoints with exact handoff
+IDs, same-origin protection, bounded validated actions and the existing interaction lease.
+No arbitrary URLs/scripts or keys are accepted. Screenshots and input text are transient.
+Thirty-three tests passed. A 390-pixel touch browser check verified native focus, password
+masking, clearing and form completion with fixtures. A fresh isolated live browser then
+rendered Doctolib's login flow, selected its username field and accepted reserved test text
+through the relay with HTTP 200. The test did not submit authentication or medical actions
+and the browser was closed. The owner must still complete their actual password/2FA.

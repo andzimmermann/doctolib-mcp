@@ -146,7 +146,11 @@ Cloudflare SDK's supported `Page.cookies(fixedAccountUrl)` method. The page rest
 pending handoff after reload and shows the upstream Retry-After deadline rather than
 sending more browser acquisitions during a limit. Status exposes only safe error stages,
 redacted pre-navigation service errors and numeric limits, never cookies or Live View links.
-Thirty local tests pass, including policy replacement and persistent Retry-After behavior.
+Thirty-three local tests pass, including policy replacement, persistent Retry-After and
+restricted native input behavior.
 The live blank-page cause was confirmed through resource hostnames and an empty login DOM;
-post-fix browser acquisition is currently blocked by an upstream HTTP 429 until the service
-Retry-After deadline. Actual rendered-login and authenticated import acceptance remain open.
+an earlier post-fix check was blocked by an upstream HTTP 429 until its Retry-After deadline.
+On 2026-11-09 a fresh isolated login rendered successfully; the native input route selected
+the real username field and transferred reserved test text with HTTP 200. No login form was
+submitted, no real credentials were used, and the test browser was closed immediately.
+Actual patient authentication/import remains an owner-operated acceptance step.
