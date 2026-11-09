@@ -58,7 +58,8 @@ on your iPhone or computer. No shell, Python installation or local helper is req
    An incomplete or rejected login never reports success. You can cancel the window.
 
 The same Worker's `BROWSER` binding starts a guarded session limited to Doctolib domains,
-including the login assets on `assets.doctolib.fr`, and shared CDNs. No browser recording
+including the login assets on `assets.doctolib.fr`, the observed Friendly Captcha EU
+origins `eu.frcapi.com`, `eu0.frcapi.com`, `eu1.frcapi.com`, and shared CDNs. No browser recording
 is requested. Native text input is sent over authenticated same-origin HTTPS directly
 to the selected Doctolib field through the remote browser. It is transient: the Worker
 does not write text or screenshots into storage/logs and never exposes them as MCP
@@ -154,3 +155,12 @@ On 2026-11-09 a fresh isolated login rendered successfully; the native input rou
 the real username field and transferred reserved test text with HTTP 200. No login form was
 submitted, no real credentials were used, and the test browser was closed immediately.
 Actual patient authentication/import remains an owner-operated acceptance step.
+
+
+Captcha connectivity: the provider's Friendly Captcha v2 widget needs its EU API/frame
+origins. Missing connections previously showed “Verbindung zur Anti-Roboter-Verifizierung
+ist fehlgeschlagen”. The guarded browser policy now includes the three observed EU hosts.
+Existing browser policies cannot change in place, so an explicit new handoff replaces a
+window created under the older policy and clears stale screenshots/native input. The
+provider's normal verification flow remains unchanged; no captcha responses are generated,
+read or substituted by the MCP.

@@ -3,8 +3,9 @@ import {ApiError} from './direct-api.mjs';
 import {loginFrame,loginInteraction} from './login-input.mjs';
 
 const lifetime=20*60*1000;
-const policyVersion=2;
-const allowedDomains=['doctolib.de','*.doctolib.de','doctolib.com','*.doctolib.com','assets.doctolib.fr'];
+const policyVersion=3;
+// Include the provider widget's EU origin and its observed regional fallbacks.
+const allowedDomains=['doctolib.de','*.doctolib.de','doctolib.com','*.doctolib.com','assets.doctolib.fr','eu.frcapi.com','eu0.frcapi.com','eu1.frcapi.com'];
 function state(account){return JSON.parse(account.get('browser_login')||'null');}
 function forget(account){account.ctx.storage.sql.exec('DELETE FROM meta WHERE key=?','browser_login');}
 export function loginCheckpoint(account,action,stage,error=null){account.set('browser_login_result',JSON.stringify({action,stage,error,at:Date.now()}));}
