@@ -11,12 +11,14 @@ export function parseInteraction(value){
 function authPage(page){const u=new URL(page.url());return u.protocol==='https:'&&['doctolib.de','doctolib.com'].some(h=>u.hostname===h||u.hostname.endsWith('.'+h))&&/^\/(?:authn\/|sessions(?:\/|$)|login(?:\/|$)|account\/sign_in)/.test(u.pathname);}
 export async function loginFrame(page){
  if(!authPage(page))return {ready_to_verify:true,image:null,field:null,width:390,height:780};
+ let loading=false;
+ try{const control=await page.waitForSelector('input,button,[role="button"]',{visible:true,timeout:5000});await control?.dispose();}catch{loading=true;}
  const field=await page.evaluate(()=>{
   const input=document.activeElement;
   if(!(input instanceof HTMLInputElement)||input.disabled||input.readOnly||!['text','email','password','tel','number'].includes(input.type))return null;
   return {type:input.type,label:(input.labels?.[0]?.innerText||input.getAttribute('aria-label')||input.placeholder||'Eingabe').slice(0,160)};
  });
- return {image:await page.screenshot({type:'jpeg',quality:65,encoding:'base64',fullPage:false}),field,width:390,height:780};
+ return {image:await page.screenshot({type:'jpeg',quality:65,encoding:'base64',fullPage:false}),field,width:390,height:780,loading};
 }
 export async function loginInteraction(page,raw){
  const input=parseInteraction(raw);

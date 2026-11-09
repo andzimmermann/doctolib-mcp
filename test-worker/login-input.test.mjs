@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {parseInteraction,loginInteraction,loginFrame} from '../cloudflare/login-input.mjs';
 
 function page({editable=true,auth=true}={}){
- const calls=[];const p={url:()=>auth?'https://www.doctolib.de/authn/patient/login':'https://www.doctolib.de/account/appointments',evaluate:async fn=>String(fn).includes('return e instanceof')?editable:editable?{type:'password',label:'Passwort'}:null,screenshot:async options=>{assert.equal(options.encoding,'base64');return 'RkFLRQ==';},waitForNetworkIdle:async()=>{},mouse:{click:async(x,y)=>calls.push(['click',x,y]),wheel:async v=>calls.push(['scroll',v.deltaY])},keyboard:{down:async key=>calls.push(['down',key]),up:async key=>calls.push(['up',key]),press:async key=>calls.push(['key',key]),sendCharacter:async text=>calls.push(['text',text])}};
+ const calls=[];const p={url:()=>auth?'https://www.doctolib.de/authn/patient/login':'https://www.doctolib.de/account/appointments',evaluate:async fn=>String(fn).includes('return e instanceof')?editable:editable?{type:'password',label:'Passwort'}:null,waitForSelector:async()=>({dispose:async()=>{}}),screenshot:async options=>{assert.equal(options.encoding,'base64');return 'RkFLRQ==';},waitForNetworkIdle:async()=>{},mouse:{click:async(x,y)=>calls.push(['click',x,y]),wheel:async v=>calls.push(['scroll',v.deltaY])},keyboard:{down:async key=>calls.push(['down',key]),up:async key=>calls.push(['up',key]),press:async key=>calls.push(['key',key]),sendCharacter:async text=>calls.push(['text',text])}};
  return {p,calls};
 }
 test('native mobile text replaces only the selected login input and is not returned',async()=>{

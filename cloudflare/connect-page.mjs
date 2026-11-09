@@ -25,7 +25,7 @@ function showFrame(value){
  $('screen').hidden=false;$('screen').src='data:image/jpeg;base64,'+value.image;
  $('remoteText').type=remoteField?.type==='password'?'password':remoteField?.type==='email'?'email':'text';
  $('remoteText').inputMode=['tel','number'].includes(remoteField?.type)?'numeric':remoteField?.type==='email'?'email':'text';
- $('remoteLabel').textContent=remoteField?.label||'Zuerst ein Feld im Bild auswählen';message(remoteField?'Tippe in die Texteingabe unter dem Bild.':'Tippe im Bild auf das gewünschte Eingabefeld.');if(remoteField)$('remoteText').scrollIntoView({block:'center',behavior:'smooth'});
+ $('remoteLabel').textContent=remoteField?.label||'Zuerst ein Feld im Bild auswählen';message(value.loading?'Doctolib lädt noch. Tippe gleich auf Bild aktualisieren.':remoteField?'Tippe in die Texteingabe unter dem Bild.':'Tippe im Bild auf das gewünschte Eingabefeld.');if(remoteField)$('remoteText').scrollIntoView({block:'center',behavior:'smooth'});
 }
 async function frame(){showFrame(await api('frame',{login_id:loginId}));}
 async function interact(value){showFrame(await api('interact',{login_id:loginId,interaction:value}));}
