@@ -23,16 +23,21 @@ export async function loginFrame(page){
 export async function loginInteraction(page,raw){
  const input=parseInteraction(raw);
  if(!authPage(page))throw new ApiError('LOGIN_READY_TO_VERIFY');
+ await page.bringToFront();
  if(input.kind==='click')await page.mouse.click(input.x,input.y);
  if(input.kind==='scroll')await page.mouse.wheel({deltaY:input.delta});
  if(input.kind==='key')await page.keyboard.press(input.key);
  if(input.kind==='text'){
-  const editable=await page.evaluate(()=>{const e=document.activeElement;return e instanceof HTMLInputElement&&!e.disabled&&!e.readOnly&&['text','email','password','tel','number'].includes(e.type);});
+  const editable=await page.evaluate(()=>{const e=document.activeElement;const valid=e instanceof HTMLInputElement&&!e.disabled&&!e.readOnly&&['text','email','password','tel','number'].includes(e.type);if(valid)e.focus();return valid;});
   if(!editable)throw new ApiError('LOGIN_SELECT_INPUT_FIRST');
   await page.keyboard.down('Control');try{await page.keyboard.press('a');}finally{await page.keyboard.up('Control');}
   // sendCharacter is the installed Cloudflare SDK's supported Input.insertText bridge.
   await page.keyboard.sendCharacter(input.text);
  }
  await page.waitForNetworkIdle({idleTime:150,timeout:1500}).catch(()=>{});
+ if(input.kind==='text'){
+  const applied=await page.evaluate(text=>{const e=document.activeElement;return e instanceof HTMLInputElement&&e.value===text;},input.text);
+  if(applied!==true)throw new ApiError('LOGIN_INPUT_NOT_APPLIED');
+ }
  return loginFrame(page);
 }

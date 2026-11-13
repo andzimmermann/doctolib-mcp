@@ -31,3 +31,14 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run types:worker
       - run: npm run test:worker
+      - name: Browser input regression
+        shell: bash
+        run: |
+          google-chrome --headless=new --no-sandbox --disable-dev-shm-usage --disable-background-networking --no-first-run --remote-debugging-port=9222 --user-data-dir="$RUNNER_TEMP/doctolib-input-chrome" about:blank > "$RUNNER_TEMP/doctolib-input-chrome.log" 2>&1 &
+          task_chrome_pid=$!
+          trap 'kill "$task_chrome_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:9222/json/version > /dev/null; then break; fi
+            sleep 1
+          done
+          node --test test-browser/*.test.mjs
