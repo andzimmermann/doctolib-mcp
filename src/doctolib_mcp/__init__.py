@@ -1,4 +1,4 @@
-"""doctolib-mcp — read-only MCP tools over Doctolib's internal JSON API."""
+"""doctolib-mcp — personal appointment MCP tools over Doctolib's internal JSON API."""
 
 from .client import DoctolibClient, DoctolibError
 

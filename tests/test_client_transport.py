@@ -36,7 +36,7 @@ def test_403_names_datadome_and_points_to_a_real_browser_session(make_client):
     assert "403" in msg
     assert "DataDome" in msg
     # Tell the reader the fix is a real browser session, not more header guessing.
-    assert "browser" in msg.lower()
+    assert "stop" in msg.lower() and "do not bypass" in msg.lower()
 
 
 def test_other_error_status_raises_with_status_and_truncated_body(make_client):
@@ -46,7 +46,7 @@ def test_other_error_status_raises_with_status_and_truncated_body(make_client):
         c._request("GET", c.base + "/anything")
     msg = str(ei.value)
     assert "500" in msg
-    assert body[:200] in msg          # truncated body is carried verbatim...
+    assert body[:200] not in msg      # never expose upstream bodies
     assert body[250:] not in msg      # ...and the tail is dropped
 
 
@@ -74,7 +74,9 @@ def test_cookie_sets_header_and_marks_authenticated():
     c = DoctolibClient(country="de", cookie="sid=abc; __dd=xyz")
     try:
         assert c.authenticated is True
-        assert c._http.headers.get("Cookie") == "sid=abc; __dd=xyz"
+        assert c._http.headers.get("Cookie") is None
+        request = c._http.build_request("GET", c.base + "/")
+        assert request.headers.get("Cookie") == "sid=abc; __dd=xyz"
     finally:
         c.close()
 

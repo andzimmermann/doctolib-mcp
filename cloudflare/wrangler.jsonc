@@ -1,0 +1,62 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "doctolib-mcp-changepoint",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-08",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "DEPLOYMENT_OWNER": "changepoint.eu",
+    "PUBLIC_ORIGIN": "https://doctolib-mcp-changepoint.changepoint-eu.workers.dev",
+    "DIRECT_MODE": "true",
+    "ENABLE_WRITES": "false",
+    "SESSION_KEEP_ALIVE": "true"
+  },
+  "secrets": {
+    "required": [
+      "MCP_TOKEN_SHA256",
+      "SESSION_KEY"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.01
+    },
+    "redact_query_string": true
+  },
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "account_id": "e663440b575a5919d90eac9d7ce69f58",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ACCOUNT_STATE",
+        "class_name": "DoctolibAccount"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "direct-v1",
+      "new_sqlite_classes": [
+        "DoctolibAccount"
+      ]
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
+  "browser": {
+    "binding": "BROWSER"
+  }
+}

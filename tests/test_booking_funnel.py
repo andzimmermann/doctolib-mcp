@@ -51,7 +51,7 @@ def _full_responses(patient_form: dict, master_patients: list) -> dict:
 
 _BOOK_ARGS = dict(
     start_date="2026-08-20T09:00:00.000+02:00", profile_id=554433,
-    visit_motive_ids=[55012], agenda_ids=[101], practice_ids=[901],
+    visit_motive_ids=[55012], agenda_ids=[101], practice_ids=[901], new_patient=False,
 )
 
 
@@ -132,7 +132,7 @@ def test_build_confirm_payload_echoes_appointment_fields(patient_form):
 def test_build_confirm_payload_falls_back_from_appointment_to_draft():
     form = {"draft": {"new_patient": True, "profile_id": 888, "custom_fields_values": {"x": 1}},
             "patient": {}}
-    _master, draft = DoctolibBookingClient._build_confirm_payload(form, 1, False)
+    _master, draft = DoctolibBookingClient._build_confirm_payload(form, 888, True)
     assert draft["new_patient"] is True
     assert draft["profile_id"] == 888
     assert draft["custom_fields_values"] == {"x": 1}
@@ -183,8 +183,8 @@ def _run_failing_at(make_fake_browser, patient_form, master_patients, failing_ke
     return result, fake
 
 
-@pytest.mark.parametrize("failing_step", [MASTER_PATIENTS, SELECT_PATIENT, PATIENT_FORM, PATIENT_CONFIRM, CONFIRMATION],
-                         ids=["master_patients", "select_patient", "patient_form", "patient_confirm", "confirmation"])
+@pytest.mark.parametrize("failing_step", [MASTER_PATIENTS, SELECT_PATIENT, PATIENT_FORM],
+                         ids=["master_patients", "select_patient", "patient_form"])
 def test_book_self_cleans_when_a_post_select_slot_step_fails(
     make_fake_browser, patient_form, master_patients, failing_step
 ):
@@ -215,3 +215,12 @@ def test_call_treats_http_200_with_errors_array_as_failure(make_fake_browser):
     fake = make_fake_browser({("POST", "/x"): {"errors": [{"detail": "rejected"}]}})
     with pytest.raises(BookingError):
         _client(fake)._call("POST", "/x", {})
+
+
+@pytest.mark.parametrize('step,expected', [(PATIENT_CONFIRM,None),(CONFIRMATION,True)])
+def test_commit_or_confirmation_failure_never_claims_unbooked_or_cleans_draft(
+    make_fake_browser,patient_form,master_patients,step,expected):
+    result,fake=_run_failing_at(make_fake_browser,patient_form,master_patients,step)
+    assert result['booked'] is expected
+    assert result['retry_allowed'] is False
+    assert DELETE_DRAFT not in fake.method_path_seq

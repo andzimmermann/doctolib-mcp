@@ -1,0 +1,79 @@
+import {DurableObject} from 'cloudflare:workers';
+import {browserLogin,loginCheckpoint} from './browser-login.mjs';
+import {ApiError,DocAPI,exactPatient,patientInsurance,book,sha} from './direct-api.mjs';
+const enc=new TextEncoder();
+function ruleTime(raw,zone){const date=new Date(raw);if(!Number.isFinite(date.getTime())||!/[Zz]|[+-]\d\d:\d\d$/.test(raw))throw new ApiError('TIMEZONE_REQUIRED');const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',weekday:'short',hourCycle:'h23'}).formatToParts(date).map(p=>[p.type,p.value]));return {date:parts.year+'-'+parts.month+'-'+parts.day,time:parts.hour+':'+parts.minute,weekday:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].indexOf(parts.weekday),millis:date.getTime()};}
+export function validateRule(a){const first=Date.parse(a.date_from+'T00:00:00Z'),last=Date.parse(a.date_to+'T00:00:00Z');if(!Number.isFinite(first)||!Number.isFinite(last)||last<first||last-first>89*86400000||new Date(first).toISOString().slice(0,10)!==a.date_from||new Date(last).toISOString().slice(0,10)!==a.date_to)throw new ApiError('DATE_RANGE_MAX_90_DAYS');if(a.time_from>=a.time_to)throw new ApiError('TIME_WINDOW_INVALID');ruleTime(new Date().toISOString(),a.timezone);return a;}
+export function eligible(slots,rule,now=Date.now()){return slots.filter(raw=>{const t=ruleTime(raw,rule.timezone);return t.millis>now&&t.date>=rule.date_from&&t.date<=rule.date_to&&t.time>=rule.time_from&&t.time<rule.time_to&&rule.weekdays.includes(t.weekday);}).sort((a,b)=>Date.parse(a)-Date.parse(b));}
+export class DoctolibAccount extends DurableObject {
+ constructor(ctx,env){super(ctx,env);ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY,value TEXT NOT NULL)');ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY,rule TEXT NOT NULL,state TEXT NOT NULL,next_check INTEGER NOT NULL,result TEXT)');ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS writes (key TEXT PRIMARY KEY,state TEXT NOT NULL,result TEXT)');}
+ get(k){return this.ctx.storage.sql.exec('SELECT value FROM meta WHERE key=?',k).toArray()[0]?.value;}
+ set(k,v){this.ctx.storage.sql.exec('INSERT INTO meta VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',k,v);}
+ keepAliveStatus(){return {enabled:this.env.SESSION_KEEP_ALIVE==='true',interval_seconds:86400,...JSON.parse(this.get('session_keep_alive')||'{}')};}
+ async keepAlive(){
+  if(this.env.SESSION_KEEP_ALIVE!=='true'||(!this.get('session')&&!this.env.DOCTOLIB_COOKIE))return;
+  const state=this.keepAliveStatus(),now=Date.now();
+  if(state.paused||state.next_check>now)return;
+  // Persist the next attempt before I/O so restarts or failures cannot cause a retry storm.
+  const next={last_attempt:now,next_check:now+86400000,last_success:state.last_success||null,paused:false};
+  this.set('session_keep_alive',JSON.stringify(next));await this.ctx.storage.sync();
+  try{await (await this.api()).patients();this.set('session_keep_alive',JSON.stringify({...next,last_success:Date.now(),error:null}));}
+  catch(e){const paused=[401,403].includes(e.status);this.set('session_keep_alive',JSON.stringify({...next,paused,next_check:paused?null:next.next_check,error:e.code||'SESSION_CHECK_FAILED'}));}
+ }
+ async login(action,id,interaction){
+  if(action==='status')return browserLogin(this,action,id);
+  const lock=JSON.parse(this.get('browser_login_lock')||'null');if(lock&&lock.until>Date.now())return {ok:false,error:'LOGIN_OPERATION_IN_PROGRESS'};
+  const owner=crypto.randomUUID();this.set('browser_login_lock',JSON.stringify({owner,until:Date.now()+120000}));await this.ctx.storage.sync();
+  try{return await browserLogin(this,action,id,undefined,interaction);}catch(e){const error=/^[A-Z_0-9]+$/.test(e.code||'')?e.code:'LOGIN_FAILED';const stage=JSON.parse(this.get('browser_login_result')||'null')?.stage||'request';if(action!=='expire')loginCheckpoint(this,action,stage,error);return {ok:false,error,stage};}finally{const current=JSON.parse(this.get('browser_login_lock')||'null');if(current?.owner===owner)this.ctx.storage.sql.exec('DELETE FROM meta WHERE key=?','browser_login_lock');}
+ }
+ async key(){if(!/^[a-f0-9]{64}$/.test(this.env.SESSION_KEY||''))throw new ApiError('SESSION_STORAGE_KEY_REQUIRED',503);return crypto.subtle.importKey('raw',Uint8Array.from(this.env.SESSION_KEY.match(/../g),b=>parseInt(b,16)),'AES-GCM',false,['encrypt','decrypt']);}
+ async saveCookie(cookie,seed){const iv=crypto.getRandomValues(new Uint8Array(12));const encrypted=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},await this.key(),enc.encode(cookie)));this.set('session',JSON.stringify({seed,iv:Array.from(iv),value:Array.from(encrypted)}));}
+ async api(){
+  const seed=this.env.DOCTOLIB_COOKIE||'';if(seed.length>16384||/[\r\n]/.test(seed))throw new ApiError('SESSION_FORMAT_INVALID');
+  const fingerprint=seed?await sha(seed):null,stored=this.get('session');let cookie=seed;
+  if(stored){const s=JSON.parse(stored);if(!seed||s.seed===fingerprint)try{cookie=new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:Uint8Array.from(s.iv)},await this.key(),Uint8Array.from(s.value)));}catch{throw new ApiError('SESSION_REIMPORT_REQUIRED',401);}}
+  if(!cookie)throw new ApiError('DOCTOLIB_SESSION_REQUIRED',401);
+  if(seed&&(!stored||JSON.parse(stored).seed!==fingerprint))await this.saveCookie(cookie,fingerprint);
+  return new DocAPI(cookie,value=>this.saveCookie(value,fingerprint));
+ }
+ async importSession(cookie){
+  const lock=JSON.parse(this.get('lock')||'null');if(lock&&lock.until>Date.now())return {ok:false,error:'ACCOUNT_OPERATION_IN_PROGRESS'};
+  const owner=crypto.randomUUID();this.set('lock',JSON.stringify({owner,until:Date.now()+600000}));await this.ctx.storage.sync();
+  try{if(typeof cookie!=='string'||!cookie||cookie.length>16384||/[\r\n]/.test(cookie))throw new ApiError('SESSION_FORMAT_INVALID');
+   const api=new DocAPI(cookie);await api.patients();await this.saveCookie(api.cookie,null);const now=Date.now();this.set('session_keep_alive',JSON.stringify({last_attempt:now,last_success:now,next_check:now+86400000,paused:false,error:null}));return {ok:true};
+  }catch(e){return {ok:false,error:e.code||'SESSION_IMPORT_FAILED'};}
+  finally{this.ctx.storage.sql.exec('DELETE FROM meta WHERE key=?','lock');}
+ }
+
+ async run(name,args){
+  // Synchronous lease before the first await serializes a single personal account.
+  const lock=JSON.parse(this.get('lock')||'null');if(lock&&lock.until>Date.now())return {ok:false,error:'ACCOUNT_OPERATION_IN_PROGRESS'};const owner=crypto.randomUUID();this.set('lock',JSON.stringify({owner,until:Date.now()+600000}));await this.ctx.storage.sync();
+  try{return {ok:true,valueJson:JSON.stringify(await this.perform(name,args))};}catch(e){return {ok:false,error:e.code||'OPERATION_FAILED'};}finally{const current=JSON.parse(this.get('lock')||'null');if(current?.owner===owner)this.ctx.storage.sql.exec('DELETE FROM meta WHERE key=?','lock');}
+ }
+ writeEnabled(){if(this.env.ENABLE_WRITES!=='true')throw new ApiError('WRITES_NOT_ENABLED',403);}
+ async once(key,fn,preflight=async()=>null){const previous=this.ctx.storage.sql.exec('SELECT state,result FROM writes WHERE key=?',key).toArray()[0];if(previous){if(previous.result)return {...JSON.parse(previous.result),deduplicated:true};throw new ApiError('PREVIOUS_WRITE_OUTCOME_UNKNOWN_REVIEW_ACCOUNT',409);}const prepared=await preflight();this.ctx.storage.sql.exec('INSERT INTO writes VALUES (?,?,NULL)',key,'pending');await this.ctx.storage.sync();const value=await fn(prepared);this.ctx.storage.sql.exec('UPDATE writes SET state=?,result=? WHERE key=?','complete',JSON.stringify(value),key);return value;}
+ async insured(a,api){if(!a.patient_id)return a;const person=exactPatient(await api.patients(),a.patient_id);const automatic=patientInsurance(person);const supplied=a.insurance_source==='patient'?undefined:a.insurance_sector;const sector=supplied||automatic;if(!sector)throw new ApiError('PATIENT_INSURANCE_REQUIRED');return {...a,insurance_sector:sector,insurance_source:supplied?'user':'patient'};}
+ async perform(name,a){
+  if(name==='list_appointment_monitors')return {monitors:this.ctx.storage.sql.exec('SELECT * FROM jobs').toArray().map(j=>({id:j.id,state:j.state,rule:JSON.parse(j.rule),next_check:j.next_check,result:j.result?JSON.parse(j.result):null}))};
+  if(name==='stop_appointment_monitor'){this.ctx.storage.sql.exec("UPDATE jobs SET state='stopped' WHERE id=? AND state IN ('active','checking')",a.monitor_id);return {id:a.monitor_id,note:'Future checks stopped; existing or in-flight appointments are unchanged'};}
+  if(name==='create_appointment_monitor'){validateRule(a);if(a.auto_book)this.writeEnabled();const api=await this.api();a=await this.insured(a,api);const profile=await api.profile(a.profile_slug);this.checkTarget(profile,a);if(this.ctx.storage.sql.exec("SELECT id FROM jobs WHERE state IN ('active','checking','booking','needs_review')").toArray().length>=10)throw new ApiError('MONITOR_LIMIT');const id=crypto.randomUUID();this.ctx.storage.sql.exec('INSERT INTO jobs VALUES (?,?,?,?,NULL)',id,JSON.stringify(a),'active',Date.now());return {id,state:'active',schedule:'Cloudflare Cron, every five minutes',rule:a};}
+  if(name==='book_appointment'&&!a.confirm)return {preview:true,booked:false,arguments:a,network_write:false};
+  const api=await this.api();
+  if(['get_availabilities','search_doctors','find_earliest_appointment','book_appointment'].includes(name))a=await this.insured(a,api);
+  if(name==='session_status'){await api.patients();return {logged_in:true,writes_enabled:this.env.ENABLE_WRITES==='true',keep_alive:this.keepAliveStatus()};}
+  if(name==='list_patients')return {patients:(await api.patients()).map(p=>({patient_id:p.uuid,first_name:p.first_name,last_name:p.last_name,kind:p.kind,insurance_sector:patientInsurance(p)}))};
+  if(name==='my_appointments')return api.raw('/account/appointments.json');
+  if(name==='get_practitioner')return api.profile(a.profile_slug);
+  if(name==='booking_url'){const p=await api.profile(a.profile_slug);return {name:p.name,booking_url:p.profile_url};}
+  if(name==='get_availabilities')return api.available(a);
+  if(name==='search_doctors')return api.search(a);
+  if(name==='find_earliest_appointment'){const found=await api.search(a);const candidates=found.providers.filter(p=>p.visit_motive_id&&p.agenda_ids?.length&&p.practice_id).slice(0,20);const results=[];let failed=0;for(const p of candidates)try{const av=await api.available({...p,insurance_sector:a.insurance_sector,days:a.within_days});if(av.first_slot)results.push({...p,...av});}catch(e){if([401,403,429].includes(e.status))throw e;failed++;}if(candidates.length&&failed===candidates.length)throw new ApiError('ALL_AVAILABILITY_CHECKS_FAILED',502);results.sort((x,y)=>Date.parse(x.first_slot.start_date||x.first_slot)-Date.parse(y.first_slot.start_date||y.first_slot));return {authenticated:true,searched:candidates.length,failed_checks:failed,partial_results:failed>0,results:results.slice(0,a.limit)};}
+  if(name==='book_appointment'){this.writeEnabled();const key=await sha(JSON.stringify(['book',a.patient_id,a.profile_id,a.start_date,[...a.visit_motive_ids].sort(),[...a.practice_ids].sort(),[...a.agenda_ids].sort(),a.new_patient]));return this.once(key,patient=>book(api,a,patient),async()=>{const patient=exactPatient(await api.patients(),a.patient_id);if(!patient.signed_id)throw new ApiError('PATIENT_SIGNED_ID_REQUIRED');await api.prepareWrite();return patient;});}
+  if(name==='cancel_appointment'){const id=encodeURIComponent(a.appointment_id);if(!a.confirm)return {preview:true,valid_reasons:await api.raw('/appointment_modification_reasons/cancellations?'+new URLSearchParams({appointment_id:a.appointment_id})),network_write:false};this.writeEnabled();return this.once(await sha('cancel:'+a.appointment_id),async()=>{await api.raw('/account/appointments/'+id,{method:'DELETE',body:{reason:a.reason||null,message:a.message||null}});return {cancelled:true,retry_allowed:false};},()=>api.prepareWrite());}
+  if(name==='abort_booking_draft'){this.writeEnabled();await api.prepareWrite();await api.raw('/online_booking/draft.json',{method:'DELETE',body:{}});return {released:true};}
+  throw new ApiError('UNKNOWN_TOOL');
+ }
+ checkTarget(p,a){if(p.profile_id!==a.profile_id||!p.agendas.some(g=>g.id===a.agenda_id&&g.practice_id===a.practice_id&&g.visit_motive_ids?.includes(a.visit_motive_id)))throw new ApiError('PRACTICE_OR_MOTIVE_CHANGED');const m=p.visit_motives.find(m=>m.id===a.visit_motive_id);if(!m||(a.new_patient&&m.allow_new_patients===false))throw new ApiError('PATIENT_ELIGIBILITY_CHANGED');}
+ async tick(){const lock=JSON.parse(this.get('lock')||'null');if(lock&&lock.until>Date.now())return {busy:true};const owner=crypto.randomUUID();this.set('lock',JSON.stringify({owner,until:Date.now()+600000}));await this.ctx.storage.sync();const reports=[];try{const due=this.ctx.storage.sql.exec("SELECT * FROM jobs WHERE state='active' AND next_check<=? ORDER BY next_check LIMIT 3",Date.now()).toArray();for(const j of due){let a=JSON.parse(j.rule);let dispatched=false;try{const today=ruleTime(new Date().toISOString(),a.timezone).date;if(today>a.date_to){this.finish(j.id,'expired',{});continue;}const api=await this.api();a=await this.insured(a,api);this.checkTarget(await api.profile(a.profile_slug),a);const start=a.date_from>today?a.date_from:today;const days=Math.floor((Date.parse(a.date_to)-Date.parse(start))/86400000)+1;const available=await api.available({visit_motive_id:a.visit_motive_id,agenda_ids:[a.agenda_id],practice_id:a.practice_id,insurance_sector:a.insurance_sector,start_date:start,days});const options=eligible(available.days_with_slots.flatMap(d=>d.slots.map(s=>s.start_date||s)),a);if(!options.length){this.finish(j.id,'active',{matching_slots:0},Date.now()+a.interval_seconds*1000);continue;}const slot=options[0];if(!a.auto_book){this.finish(j.id,'found',{start_date:slot});continue;}this.writeEnabled();const other=this.ctx.storage.sql.exec("SELECT rule FROM jobs WHERE id<>? AND state IN ('booking','booked','needs_review')",j.id).toArray().some(r=>{const b=JSON.parse(r.rule);return b.profile_id===a.profile_id&&b.patient_id===a.patient_id&&b.practice_id===a.practice_id&&b.visit_motive_id===a.visit_motive_id;});if(other)throw new ApiError('OTHER_JOB_ALREADY_DISPATCHED');this.finish(j.id,'booking',{start_date:slot});await this.ctx.storage.sync();dispatched=true;const result=await this.perform('book_appointment',{...a,start_date:slot,visit_motive_ids:[a.visit_motive_id],agenda_ids:[a.agenda_id],practice_ids:[a.practice_id],confirm:true});this.finish(j.id,result.booked===true?'booked':'needs_review',{booked:result.booked,start_date:slot,outcome:result.outcome||null,retry_allowed:false});}catch(e){this.finish(j.id,'needs_review',{error:e.code||'CHECK_FAILED',dispatched,retry_allowed:false});if([401,403,429].includes(e.status)){this.ctx.storage.sql.exec("UPDATE jobs SET state='needs_review',result=? WHERE state='active'",JSON.stringify({error:e.code,dispatched:false,retry_allowed:false}));break;}}reports.push({id:j.id});}await this.keepAlive();await this.login('expire');return {checked:reports.length};}finally{const current=JSON.parse(this.get('lock')||'null');if(current?.owner===owner)this.ctx.storage.sql.exec('DELETE FROM meta WHERE key=?','lock');}}
+ finish(id,state,result,next=Date.now()){this.ctx.storage.sql.exec('UPDATE jobs SET state=?,result=?,next_check=? WHERE id=?',state,JSON.stringify(result),next,id);}
+}

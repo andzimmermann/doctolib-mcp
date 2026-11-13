@@ -193,7 +193,7 @@ def _install_fake_playwright(monkeypatch, cookies):
                         lambda: (lambda: _FakePlaywrightCM(ctx)))
 
 
-def test_cookie_header_filter_admits_a_short_substring_domain(monkeypatch, tmp_path):
+def test_cookie_header_filter_rejects_a_short_substring_domain(monkeypatch, tmp_path):
     # The filter is
     #   c["domain"].lstrip(".") in host or "doctolib" in c["domain"]
     # with host = "www.doctolib.de", so a cookie whose domain is a short substring of that
@@ -213,4 +213,4 @@ def test_cookie_header_filter_admits_a_short_substring_domain(monkeypatch, tmp_p
     assert "sid=1" in header
     assert "other=3" not in header
     # The suspect cookie leaks in because "de" is a substring of "www.doctolib.de".
-    assert "suspicious=2" in header
+    assert "suspicious=2" not in header

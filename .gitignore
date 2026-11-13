@@ -3,3 +3,14 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+.state/
+*.sqlite3*
+*.bundle
+.secrets/
+.env*
+.dev.vars*
+node_modules/
+.wrangler/
+dist-worker/
+worker-configuration.d.ts

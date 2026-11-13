@@ -1,0 +1,15 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {Miniflare,Response as MFResponse} from 'miniflare';
+const TOKEN='fake_client_token_for_offline_tests_only_1234567890';
+const vars={DEPLOYMENT_OWNER:'changepoint.eu',PUBLIC_ORIGIN:'https://mcp.example.test',MCP_TOKEN_SHA256:createHash('sha256').update(TOKEN).digest('hex')};
+async function instance(t,overrides={},outbound=()=>MFResponse.json({healthcareProviders:[]},{status:206})){
+ const mf=new Miniflare({cf:false,enableDevRegistry:false,logRequests:false,telemetry:{enabled:false},workers:[{config:{name:'gateway-test',compatibilityDate:'2026-11-08',compatibilityFlags:['nodejs_compat','global_fetch_strictly_public'],env:Object.fromEntries(Object.entries({...vars,...overrides}).map(([key,value])=>[key,{type:'text',value}])),manifest:{mainModule:'worker.mjs',modules:{'worker.mjs':{type:'esm',contents:await readFile(new URL('../cloudflare/dist-worker/worker.js',import.meta.url),'utf8')}}}},dev:{outboundService:{type:'fetcher',handler:outbound}}}]});t.after(()=>mf.dispose());await mf.ready;return mf;
+}
+function req(mf,extra={}){return mf.dispatchFetch('https://mcp.example.test/setup/check-api',{method:'POST',headers:{authorization:'Bearer '+TOKEN,...extra}});}
+test('missing and wrong bearer tokens fail before any upstream access',async t=>{let calls=0;const mf=await instance(t,{},()=>{calls++;return MFResponse.json({});});for(const authorization of ['', 'Bearer invalid', 'Bearer '+TOKEN+'x'])assert.equal((await req(mf,{authorization})).status,401);assert.equal(calls,0);});
+test('deployment-owner and browser Origin errors fail closed',async t=>{const wrong=await instance(t,{DEPLOYMENT_OWNER:'mysupply.ai'});assert.equal((await req(wrong)).status,503);const valid=await instance(t);assert.equal((await req(valid,{origin:'https://evil.example.test'})).status,403);});
+test('direct API check sends no bearer or client cookies to Doctolib',async t=>{let seen;const mf=await instance(t,{},async r=>{seen={host:new URL(r.url).hostname,auth:r.headers.get('authorization'),cookie:r.headers.get('cookie'),ua:r.headers.get('user-agent')};return MFResponse.json({healthcareProviders:[]},{status:206});});const r=await req(mf,{cookie:'must_not_leave_worker=1'});assert.equal((await r.json()).direct_api,true);assert.deepEqual({...seen,ua:undefined},{host:'www.doctolib.de',auth:null,cookie:null,ua:undefined});assert.ok(!seen.ua.includes('Mozilla'));});
+test('access denials and redirects are not followed or retried',async t=>{for(const status of [403,302]){let calls=0;const mf=await instance(t,{},()=>{calls++;return new MFResponse('private upstream body',{status,headers:{location:'https://other.example.test'}});});const r=await req(mf),data=await r.json();assert.equal(data.direct_api,false);assert.equal(data.upstream_status,status);assert.equal(calls,1);assert.ok(!JSON.stringify(data).includes('private upstream body'));}});

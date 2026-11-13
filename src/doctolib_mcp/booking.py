@@ -1,70 +1,17 @@
-"""The booking (write) path — reconstructed from Doctolib's own funnel JavaScript.
+"""Stateful appointment booking through the dedicated authenticated browser.
 
-READ THIS BEFORE TOUCHING ANYTHING HERE.
-
-Booking commits a real clinical slot at a real practice under Eren's real name. A
-successful call means a human being is expected to physically show up at that address at
-that time, and a no-show is rude at best and billable at worst. Nothing in this module
-should ever run as a side effect of a search.
-
-## Why it is shaped like this
-
-The funnel is **stateful and session-bound**, not a single POST. `select_slot` creates a
-server-side *draft* (a temporary hold) keyed to the session — note that
-`patient_selection/v1/info` takes no parameters at all, it reads the draft back out of the
-session. Four steps, in order:
-
-    1. POST /online_booking/api/slot_selection_funnel/v1/select_slot   -> creates draft
-    2. GET  /account/master_patients.json                             -> who can be booked
-       POST /online_booking/api/patient_selection/v1/select            -> pick master patient
-    3. GET  /online_booking/api/checkout/v1/patient_form               -> server-prefilled fields
-       POST /online_booking/api/checkout/v1/patient_confirm            -> COMMITS THE BOOKING
-    4. GET  /online_booking/api/confirmation/v1/booking                -> final state
-
-The bookable patients do NOT come from `patient_selection/v1/info` (that returns the draft
-and, when the step is auto-resolved, a `redirection`) — the UI's patient picker loads them
-from `/account/master_patients.json`, each carrying the `signed_id` that `select` needs and
-a `kind` ("main" for the account holder). The first real booking failed precisely because
-this module read patients off the info response; fixed to use the account endpoint.
-
-Self-cleaning: if any step after `select_slot` fails, the funnel tears the draft down via
-`DELETE /online_booking/draft.json` so a broken run never leaves a slot held or a stale
-draft that could interfere with a later booking. A draft is only a temporary hold — never a
-confirmed appointment — so clearing it is safe and idempotent.
-
-Because it is stateful and Doctolib rotates the CSRF token between steps, the whole funnel
-runs inside **one** `AuthedBrowser` session (a single persistent browser context). Each
-call is an in-page fetch carrying the live CSRF token — the same mechanism that the first
-real `cancel_appointment` needed. A per-step browser launch, or an httpx cookie replay,
-would drop the draft and the rotating token; that was the original bug here.
-
-Step 3's payload is deliberately echoed back from what step 3's GET returned rather than
-assembled from our own guesses. The form carries practice-specific custom fields and
-qualification questions that we cannot know in advance, and inventing values for a medical
-intake form is exactly the wrong kind of creative.
-
-## Verification status — be honest with the user about this
-
-Every endpoint path and payload key here was read out of Doctolib's shipped funnel bundles
-(chunks 93204 / 58900 / 96195 / 31180). The transport is now correct-by-construction: it
-reuses the exact in-page CSRF write that a real cancellation proved works. But **the funnel
-itself has still never been executed end to end** — that cannot be tested without making a
-real booking. Treat the first real call as the test, expect step 3 (checkout) to be the
-fragile one, and surface server errors verbatim.
-
-## Partial failure
-
-If a step after `select_slot` fails, a draft hold may exist server-side. It expires on its
-own, but the result dict says so and carries `resume_url` so the human can finish or
-cancel it in a browser. Never silently retry a half-finished funnel.
+select_slot creates a temporary hold; patient_confirm may commit an appointment. The
+commit attempt is never automatically retried. Failure after dispatch is UNKNOWN, and a
+successful commit followed by failed confirmation remains BOOKED, requiring account
+verification. Only failures strictly before commit attempt clean up the temporary draft.
+The upstream internal API has no stability guarantee and has not been live-validated here.
 """
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from .client import CHROME_UA, COUNTRY_HOSTS, DoctolibError
+from .client import COUNTRY_HOSTS, DoctolibError
 
-import httpx
 
 
 class BookingError(DoctolibError):
@@ -118,26 +65,6 @@ def normalize_appointments(data: dict) -> dict:
     }
 
 
-def appointments_via_cookie(cookie: str, country: str = "de") -> dict:
-    """Read /account/appointments.json with an explicit session cookie (httpx).
-
-    The lighter escape hatch behind `my_appointments`'s `cookie` / DOCTOLIB_COOKIE override.
-    The default path goes through the login session instead (session.authed_request).
-    """
-    if country not in COUNTRY_HOSTS:
-        raise BookingError(f"unsupported country {country!r}")
-    base = COUNTRY_HOSTS[country]
-    r = httpx.get(
-        base + "/account/appointments.json",
-        headers={"User-Agent": CHROME_UA, "Accept": "application/json",
-                 "Referer": base + "/", "Cookie": cookie},
-        timeout=30.0,
-    )
-    if r.status_code in (401, 403):
-        raise BookingError("the provided session cookie is missing or expired")
-    if r.status_code >= 400:
-        raise BookingError(f"HTTP {r.status_code}: {r.text[:200]}")
-    return normalize_appointments(r.json().get("data", {}))
 
 
 class DoctolibBookingClient:
@@ -263,6 +190,7 @@ class DoctolibBookingClient:
         insurance_sector: Optional[str] = None,
         new_patient: bool = True,
         patient_name: Optional[str] = None,
+        patient_id: Optional[str] = None,
         resume_url: Optional[str] = None,
     ) -> dict:
         """Run the whole funnel. Assumes the caller has already gated on user consent.
@@ -272,6 +200,8 @@ class DoctolibBookingClient:
         and no hint, this raises rather than guessing who is seeing the doctor.
         """
         trace: list[str] = []
+        commit_attempted = False
+        committed = False
 
         draft = self.select_slot(
             start_date=start_date, profile_id=profile_id, visit_motive_ids=visit_motive_ids,
@@ -285,7 +215,7 @@ class DoctolibBookingClient:
             patients = self.master_patients()
             trace.append(f"master_patients: {len(patients)} on account")
 
-            chosen = self._pick_patient(patients, patient_name)
+            chosen = self._pick_patient(patients, patient_name, patient_id)
             signed_id = chosen.get("signed_id")
             if not signed_id:
                 raise BookingError(f"master patient has no signed_id: {list(chosen)}")
@@ -293,10 +223,15 @@ class DoctolibBookingClient:
             trace.append(f"patient_selection/select: {chosen.get('first_name')} {chosen.get('last_name')}")
 
             form = self.patient_form(chosen.get("uuid"))
+            returned_patient = (form.get("patient") or {}).get("uuid")
+            if returned_patient is not None and returned_patient != chosen.get("uuid"):
+                raise BookingError("Patient form does not match the selected person")
             trace.append("checkout/patient_form: ok")
 
             master_patient, draft_payload = self._build_confirm_payload(form, profile_id, new_patient)
+            commit_attempted = True
             result = self.patient_confirm(master_patient, draft_payload)
+            committed = True
             trace.append("checkout/patient_confirm: COMMITTED")
 
             final = self.confirmation()
@@ -305,11 +240,16 @@ class DoctolibBookingClient:
                 "trace": trace,
                 "confirm_response": result,
                 "confirmation": final,
-                "warning": "A real appointment now exists. Eren is expected to attend in person.",
+                "warning": "A real appointment now exists. The selected patient is expected to attend in person.",
             }
         except Exception as e:
             # Self-clean: release the draft so the held slot frees immediately and no stale
             # draft blocks a later booking. Safe — a draft is never a confirmed appointment.
+            if commit_attempted:
+                return {"booked": True if committed else None, "outcome": "committed_confirmation_unavailable" if committed else "unknown",
+                        "trace": trace, "error": "Booking result needs account verification",
+                        "draft_cleaned": False, "retry_allowed": False,
+                        "warning": "Check my_appointments or the website. Never automatically repeat this booking."}
             draft_cleaned = self.abort_draft()
             trace.append(f"abort_draft: {'released' if draft_cleaned else 'nothing to release / failed'}")
             return {
@@ -325,9 +265,14 @@ class DoctolibBookingClient:
             }
 
     @staticmethod
-    def _pick_patient(patients: list[dict], hint: Optional[str]) -> dict:
+    def _pick_patient(patients: list[dict], hint: Optional[str], patient_id: Optional[str] = None) -> dict:
         if not patients:
             raise BookingError("no bookable patient on this account")
+        if patient_id:
+            matches = [p for p in patients if p.get("uuid") == patient_id]
+            if len(matches) != 1:
+                raise BookingError("Selected patient ID is absent or ambiguous in the logged-in account")
+            return matches[0]
         names = [
             "{} {}".format(p.get("first_name") or "", p.get("last_name") or "").strip()
             for p in patients
@@ -360,6 +305,10 @@ class DoctolibBookingClient:
         """
         appt = form.get("appointment") or form.get("draft") or {}
         patient = form.get("patient") or {}
+        if appt.get("profile_id", profile_id) != profile_id:
+            raise BookingError("Patient form changed the selected practice profile")
+        if appt.get("new_patient", new_patient) != new_patient:
+            raise BookingError("Patient form changed the instructed new-patient status")
 
         master_patient = {
             k: patient[k]
